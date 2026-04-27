@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAnalysis - Dashboard</title>
+    
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/vue.global.js"></script>
+    <script src="libs/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; padding-bottom: 40px;}
+        .card-dash { background: white; border-radius: 20px; border: 1px solid #e2e8f0; transition: all 0.3s ease; }
+        .card-dash:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-8">
+    <div id="app" class="w-full">
+        
+        <header class="mb-8 flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                    <span class="icon-wrapper text-indigo-600" v-html="getIcon('bar-chart-2', 32)"></span> 
+                    Visão de Mercado
+                </h1>
+                <p class="text-slate-500 mt-2 font-medium">Panorama diário: Índices, Watchlist em tempo real e termômetro do Ibovespa.</p>
+            </div>
+            
+            <div class="text-right flex flex-col items-end">
+                <button @click="carregarTudo" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold py-2 px-3 rounded-lg flex items-center gap-2 transition shadow-sm mb-2">
+                    <span :class="{'animate-spin': loading}" class="icon-wrapper" v-html="getIcon('refresh-cw', 14)"></span>
+                    Atualizar Cotações
+                </button>
+                <div class="flex items-center gap-2">
+                    <span class="relative flex h-3 w-3">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </span>
+                    <span class="text-xs font-bold text-slate-500">API Conectada</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 1. BARRA DE ÍNDICES GLOBAIS -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div v-for="indice in indicesGlobais" :key="indice.symbol" class="card-dash p-5 bg-gradient-to-br from-slate-800 to-slate-900 border-0 text-white relative overflow-hidden">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{{ indice.name }}</p>
+                
+                <div v-if="indice.price" class="flex justify-between items-end">
+                    <p class="text-2xl font-black">{{ formatarMoeda(indice.price) }}</p>
+                    <div class="text-right">
+                        <p class="text-sm font-bold flex items-center justify-end gap-1" :class="indice.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                            <span class="icon-wrapper" v-html="getIcon(indice.changePercent >= 0 ? 'trending-up' : 'trending-down', 14)"></span>
+                            {{ indice.changePercent >= 0 ? '+' : '' }}{{ indice.changePercent.toFixed(2) }}%
+                        </p>
+                    </div>
+                </div>
+                <div v-else class="animate-pulse h-8 bg-slate-700/50 rounded w-1/2 mt-1"></div>
+
+                <span class="absolute -right-4 -bottom-4 text-slate-700/30 icon-wrapper" v-html="getIcon('globe', 80)"></span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- 2. GRÁFICO IBOVESPA (MÊS) -->
+            <div class="lg:col-span-2 card-dash p-6 flex flex-col min-h-[400px]">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-lg font-black text-slate-800 flex items-center gap-2">
+                            <span class="icon-wrapper text-indigo-500" v-html="getIcon('activity', 20)"></span>
+                            Termômetro B3 (Ibovespa)
+                        </h2>
+                        <p class="text-xs font-bold text-slate-500 mt-1">Histórico dos últimos 30 pregões.</p>
+                    </div>
+                </div>
+                
+                <div v-if="loadingIbov" class="flex-1 flex flex-col items-center justify-center text-slate-400">
+                    <span class="animate-spin icon-wrapper mb-2" v-html="getIcon('loader-2', 32)"></span>
+                    <p class="text-xs font-bold uppercase tracking-widest">Carregando Gráfico...</p>
+                </div>
+                
+                <!-- AQUI ESTÁ A CORREÇÃO MÁGICA: Usar v-show em vez de v-else -->
+                <div v-show="!loadingIbov" class="relative flex-1 w-full h-full">
+                    <canvas id="ibovChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 3. SUA WATCHLIST VIVA -->
+            <div class="card-dash p-6 flex flex-col h-[400px]">
+                <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    Radar Pessoal (Watchlist)
+                    <span class="icon-wrapper text-amber-500" v-html="getIcon('star', 16)"></span>
+                </h3>
+                <p class="text-xs font-bold text-slate-500 mb-4 pb-4 border-b border-slate-100">Cotações em tempo real dos seus ativos favoritos.</p>
+                
+                <div class="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                    
+                    <div v-if="loading" class="flex justify-center items-center h-full text-slate-300">
+                        <span class="animate-spin icon-wrapper" v-html="getIcon('loader-2', 24)"></span>
+                    </div>
+
+                    <div v-else-if="watchlistCota.length === 0" class="text-center text-xs text-slate-400 py-10">
+                        <span class="icon-wrapper mb-2 opacity-50" v-html="getIcon('search', 24)"></span>
+                        <p>Nenhum ativo no radar.</p>
+                        <p class="mt-1">Favorite ativos nas abas de Fundamentos ou Técnica.</p>
+                    </div>
+                    
+                    <div v-for="ativo in watchlistCota" :key="ativo.symbol" class="flex items-center justify-between p-3 mb-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition cursor-default">
+                        <div>
+                            <p class="text-sm font-black text-slate-800">{{ ativo.symbol }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-bold text-slate-900">R$ {{ formatarMoeda(ativo.price) }}</p>
+                            <p class="text-[10px] font-black" :class="ativo.changePercent >= 0 ? 'text-emerald-500' : 'text-rose-500'">
+                                {{ ativo.changePercent >= 0 ? '+' : '' }}{{ (ativo.changePercent || 0).toFixed(2) }}%
+                            </p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const loading = ref(false);
+                const loadingIbov = ref(true);
+                const watchlistCota = ref([]);
+                let ibovChartInst = null;
+
+                const indicesSetup = [
+                    { symbol: '^BVSP', name: 'Ibovespa' },
+                    { symbol: 'BRL=X', name: 'Dólar (USD/BRL)' },
+                    { symbol: '^GSPC', name: 'S&P 500' },
+                    { symbol: 'BTC-USD', name: 'Bitcoin (USD)' }
+                ];
+                const indicesGlobais = ref([...indicesSetup]);
+
+                const getIcon = (name, size = 18) => {
+                    try {
+                        const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        if (window.lucide && window.lucide.icons[iconName]) {
+                            const svgElement = window.lucide.createElement(window.lucide.icons[iconName]);
+                            svgElement.setAttribute('width', size); svgElement.setAttribute('height', size); svgElement.setAttribute('stroke-width', 2.5);
+                            return svgElement.outerHTML;
+                        } return "";
+                    } catch(e) { return ""; }
+                };
+
+                const formatarMoeda = (valor) => {
+                    if(!valor) return '0,00';
+                    return Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                };
+
+                const getWatchlistLocal = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/watchlist');
+                        const data = await res.json();
+                        return data.map(item => item.ticker);
+                    } catch (e) { return []; }
+                };
+
+                const carregarTudo = async () => {
+                    loading.value = true;
+                    try {
+                        const userTickers = await getWatchlistLocal();
+                        const allTickers = [...new Set([...indicesSetup.map(i => i.symbol), ...userTickers])];
+                        
+                        if (allTickers.length > 0) {
+                            const res = await fetch(`http://localhost:3002/api/brapi/batch-quotes?symbols=${allTickers.join(',')}`);
+                            const data = await res.json();
+
+                            indicesGlobais.value = indicesSetup.map(setup => {
+                                const found = data.find(d => d.symbol.includes(setup.symbol.replace('^', '')));
+                                return found ? { ...setup, price: found.price, changePercent: found.changePercent } : setup;
+                            });
+
+                            watchlistCota.value = userTickers.map(ticker => {
+                                const found = data.find(d => d.symbol === ticker);
+                                return found ? { symbol: ticker, price: found.price, changePercent: found.changePercent } : { symbol: ticker, price: 0, changePercent: 0 };
+                            });
+                        }
+                    } catch (e) { console.error("Erro nas cotações:", e); }
+                    loading.value = false;
+                };
+
+                const carregarGraficoIbov = async () => {
+                    loadingIbov.value = true;
+                    try {
+                        // Usamos %5EBVSP (URL Encoded de ^BVSP) para evitar bugs de parsing de URL no fetch
+                        const res = await fetch(`http://localhost:3002/api/brapi/history/%5EBVSP?range=1mo&interval=1d`);
+                        const history = await res.json();
+
+                        const ctx = document.getElementById('ibovChart');
+                        if (ctx) {
+                            if (ibovChartInst) ibovChartInst.destroy();
+
+                            const labels = history.map(d => new Date(d.date * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+                            const prices = history.map(d => d.close);
+                            
+                            const isUp = prices[prices.length - 1] >= prices[0];
+                            const colorHex = isUp ? '#10b981' : '#f43f5e'; 
+
+                            ibovChartInst = new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: labels,
+                                    datasets: [{
+                                        label: 'Pontos', data: prices, borderColor: colorHex, backgroundColor: colorHex + '20',
+                                        borderWidth: 3, pointRadius: 0, fill: true, tension: 0.3
+                                    }]
+                                },
+                                options: {
+                                    responsive: true, maintainAspectRatio: false,
+                                    plugins: { legend: { display: false } },
+                                    scales: {
+                                        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+                                        y: { grid: { color: '#f1f5f9' }, ticks: { callback: (val) => val.toLocaleString('pt-BR') } }
+                                    }
+                                }
+                            });
+                        }
+                    } catch (e) { console.error("Erro no gráfico ibov", e); }
+                    
+                    // Só desliga o loading depois que a renderização foi feita
+                    loadingIbov.value = false;
+                };
+
+                onMounted(() => {
+                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
+                    carregarTudo();
+                    carregarGraficoIbov();
+                });
+
+                return { 
+                    loading, loadingIbov, indicesGlobais, watchlistCota,
+                    getIcon, formatarMoeda, carregarTudo
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

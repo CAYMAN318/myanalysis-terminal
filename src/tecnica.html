@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAnalysis - Análise Técnica</title>
+    
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/vue.global.js"></script>
+    <script src="libs/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; padding-bottom: 40px; }
+        .card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
+        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+        .range-btn { padding: 6px 16px; font-size: 12px; font-weight: bold; border-radius: 8px; transition: all 0.2s; color: #64748b; background: #f1f5f9; }
+        .range-btn:hover { background: #e2e8f0; color: #334155; }
+        .range-btn.active { background: #4f46e5; color: white; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2); }
+        .autocomplete-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; margin-top: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .autocomplete-dropdown li { padding: 10px 16px; cursor: pointer; font-weight: 700; color: #334155; transition: background 0.1s; }
+        .autocomplete-dropdown li:hover { background: #f1f5f9; color: #4f46e5; }
+    </style>
+</head>
+<body class="p-8">
+    <div id="app" class="w-full">
+        
+        <header class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                    <span class="icon-wrapper text-indigo-600" v-html="getIcon('activity', 32)"></span> 
+                    Swing Trade 
+                </h1>
+                <p class="text-slate-500 mt-2 font-medium">Análise gráfica com bypass de limitações API (Powered by Yahoo Finance).</p>
+            </div>
+
+            <div class="flex items-center gap-3 w-full md:w-auto relative">
+                <div class="relative w-full md:w-64">
+                    <input type="text" v-model="tickerSearch" @input="mostrarOpcoes = true" @focus="mostrarOpcoes = true" @keyup.enter="buscarHistorico" class="w-full bg-white border border-slate-300 text-slate-900 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block pl-10 p-3 font-bold uppercase placeholder:normal-case placeholder:font-normal placeholder:text-slate-400" placeholder="Ticker (Ex: WEGE3)">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="icon-wrapper text-slate-400" v-html="getIcon('search', 18)"></span>
+                    </div>
+                    
+                    <ul v-if="mostrarOpcoes && tickersFiltrados.length > 0" class="autocomplete-dropdown custom-scrollbar">
+                        <li v-for="t in tickersFiltrados" :key="t" @click="selecionarTicker(t)">{{ t }}</li>
+                    </ul>
+                </div>
+                
+                <button @click="buscarHistorico" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 h-12 text-sm font-bold transition flex items-center justify-center gap-2">
+                    <span v-if="loading" class="animate-spin icon-wrapper" v-html="getIcon('loader-2', 18)"></span>
+                    <span v-else class="icon-wrapper" v-html="getIcon('play', 18)"></span>
+                    Plotar
+                </button>
+            </div>
+        </header>
+
+        <div v-if="error" class="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl font-bold flex items-center gap-3">
+            <span class="icon-wrapper" v-html="getIcon('alert-circle', 20)"></span>
+            {{ error }}
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6" @click="mostrarOpcoes = false">
+            <div class="lg:col-span-3 space-y-4">
+                <div class="card p-6 min-h-[500px] flex flex-col relative">
+                    <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 flex items-center gap-2">{{ ativoAtivo || 'Aguardando Ativo' }}</h2>
+                            <p v-if="historico.length > 0" class="text-sm font-bold text-slate-500 mt-1 flex items-center gap-2">
+                                Último Fechamento: <span class="text-indigo-600 font-black">R$ {{ formatarMoeda(historico[historico.length - 1].close) }}</span>
+                            </p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="mudarRange('1mo')" :class="['range-btn', rangeAtual === '1mo' ? 'active' : '']">1M</button>
+                            <button @click="mudarRange('3mo')" :class="['range-btn', rangeAtual === '3mo' ? 'active' : '']">3M</button>
+                            <button @click="mudarRange('6mo')" :class="['range-btn', rangeAtual === '6mo' ? 'active' : '']">6M</button>
+                            <button @click="mudarRange('1y')"  :class="['range-btn', rangeAtual === '1y' ? 'active' : '']">1A</button>
+                            <button @click="mudarRange('5y')"  :class="['range-btn', rangeAtual === '5y' ? 'active' : '']">5A</button>
+                        </div>
+                    </div>
+
+                    <div v-show="!ativoAtivo && !loading" class="absolute inset-0 flex flex-col items-center justify-center text-slate-300 pointer-events-none mt-10">
+                        <span class="icon-wrapper mb-4" v-html="getIcon('trending-up', 64)"></span>
+                        <p class="font-bold text-slate-400">Insira um Ticker para renderizar o gráfico.</p>
+                    </div>
+
+                    <div class="relative flex-1 w-full h-[400px]">
+                        <canvas id="techChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-1">
+                <div class="card p-5 h-full flex flex-col">
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
+                        Watchlist <span class="icon-wrapper text-amber-400" v-html="getIcon('star', 16)"></span>
+                    </h3>
+                    <div class="flex-1 overflow-y-auto space-y-2 pr-1">
+                        <div v-for="item in watchlist" :key="item.id" class="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg group transition cursor-pointer" @click="tickerSearch = item.ticker; buscarHistorico()">
+                            <p class="text-sm font-bold text-slate-800">{{ item.ticker }}</p>
+                            <button @click.stop="removerWatchlist(item.id)" class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition">
+                                <span class="icon-wrapper" v-html="getIcon('trash-2', 16)"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const tickerSearch = ref('');
+                const ativoAtivo = ref('');
+                const loading = ref(false);
+                const error = ref('');
+                const watchlist = ref([]);
+                const historico = ref([]);
+                const rangeAtual = ref('6mo'); 
+                let chartInstance = null;
+
+                // Autocomplete States
+                const tickersDisponiveis = ref([]);
+                const mostrarOpcoes = ref(false);
+
+                const getIcon = (name, size = 18) => {
+                    try {
+                        const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        if (window.lucide && window.lucide.icons[iconName]) {
+                            const svgElement = window.lucide.createElement(window.lucide.icons[iconName]);
+                            svgElement.setAttribute('width', size);
+                            svgElement.setAttribute('height', size);
+                            svgElement.setAttribute('stroke-width', 2.5);
+                            return svgElement.outerHTML;
+                        }
+                        return "";
+                    } catch(e) { return ""; }
+                };
+
+                const formatarMoeda = (valor) => Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+                // Filtro do Autocomplete
+                const tickersFiltrados = computed(() => {
+                    if (!tickerSearch.value) return [];
+                    const search = tickerSearch.value.toUpperCase();
+                    return tickersDisponiveis.value.filter(t => t.includes(search)).slice(0, 8); // Mostra até 8 opções
+                });
+
+                const selecionarTicker = (ticker) => {
+                    tickerSearch.value = ticker;
+                    mostrarOpcoes.value = false;
+                    buscarHistorico();
+                };
+
+                const carregarBancoDeTickers = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/available');
+                        tickersDisponiveis.value = await res.json();
+                    } catch (e) { console.error("Erro ao carregar lista de tickers"); }
+                };
+
+                const carregarWatchlist = async () => {
+                    try { const res = await fetch('http://localhost:3002/api/brapi/watchlist'); watchlist.value = await res.json(); } catch (e) {}
+                };
+
+                const removerWatchlist = async (id) => {
+                    await fetch(`http://localhost:3002/api/brapi/watchlist/${id}`, { method: 'DELETE' }); carregarWatchlist();
+                };
+
+                const mudarRange = (novoRange) => {
+                    rangeAtual.value = novoRange;
+                    if(ativoAtivo.value) { tickerSearch.value = ativoAtivo.value; buscarHistorico(); }
+                };
+
+                const calcularSMA = (dados, periodo) => {
+                    let result = [];
+                    for (let i = 0; i < dados.length; i++) {
+                        if (i < periodo - 1) result.push(null);
+                        else {
+                            let sum = 0;
+                            for (let j = 0; j < periodo; j++) sum += dados[i - j];
+                            result.push(sum / periodo);
+                        }
+                    }
+                    return result;
+                };
+
+                const buscarHistorico = async () => {
+                    if (!tickerSearch.value.trim()) return;
+                    mostrarOpcoes.value = false;
+                    error.value = ''; loading.value = true;
+                    const ticker = tickerSearch.value.trim().toUpperCase();
+
+                    // Ajuste de Intervalos do Yahoo Finance
+                    let interval = '1d';
+                    if (rangeAtual.value === '1y' || rangeAtual.value === '5y') interval = '1wk'; 
+
+                    try {
+                        const res = await fetch(`http://localhost:3002/api/brapi/history/${ticker}?range=${rangeAtual.value}&interval=${interval}`);
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || "Erro ao buscar histórico.");
+                        
+                        historico.value = data;
+                        ativoAtivo.value = ticker;
+                        renderizarGrafico();
+                    } catch (e) {
+                        error.value = e.message;
+                    } finally { loading.value = false; }
+                };
+
+                const renderizarGrafico = () => {
+                    const ctx = document.getElementById('techChart');
+                    if (!ctx) return;
+                    if (chartInstance) chartInstance.destroy();
+
+                    const labels = historico.value.map(d => new Date(d.date * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }));
+                    const prices = historico.value.map(d => d.close);
+                    const sma9 = calcularSMA(prices, 9);
+                    const sma21 = calcularSMA(prices, 21);
+                    const volumes = historico.value.map(d => d.volume || 0);
+                    const volumeColors = historico.value.map(d => d.close >= d.open ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)');
+
+                    chartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                { label: 'Fechamento', data: prices, borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderWidth: 2, fill: true, tension: 0.1, yAxisID: 'y' },
+                                { label: 'SMA (9)', data: sma9, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, tension: 0.2, yAxisID: 'y' },
+                                { label: 'SMA (21)', data: sma21, borderColor: '#d946ef', borderWidth: 1.5, pointRadius: 0, tension: 0.2, yAxisID: 'y' },
+                                { type: 'bar', label: 'Volume', data: volumes, backgroundColor: volumeColors, yAxisID: 'y1' }
+                            ]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { grid: { display: false }, ticks: { maxTicksLimit: 15, font: { size: 10 } } },
+                                y: { type: 'linear', display: true, position: 'right', grid: { color: '#f1f5f9' }, ticks: { callback: (val) => 'R$ ' + val.toFixed(2) } },
+                                y1: { type: 'linear', display: false, position: 'left', suggestedMax: Math.max(...volumes) * 4, min: 0 }
+                            }
+                        }
+                    });
+                };
+
+                onMounted(() => {
+                    carregarWatchlist();
+                    carregarBancoDeTickers();
+                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
+                });
+
+                return { 
+                    tickerSearch, ativoAtivo, loading, error, watchlist, rangeAtual, historico,
+                    buscarHistorico, removerWatchlist, mudarRange, getIcon, formatarMoeda,
+                    tickersDisponiveis, tickersFiltrados, mostrarOpcoes, selecionarTicker
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

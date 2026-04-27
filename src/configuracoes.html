@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAnalysis - Configurações</title>
+    
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/vue.global.js"></script>
+    <script src="libs/lucide.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .card-param { transition: all 0.2s ease; border: 1px solid #e2e8f0; background: white; border-radius: 12px; }
+        .card-param:hover { border-color: #4f46e5; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+    </style>
+</head>
+<body class="p-8">
+    <!-- Ajuste aqui: w-full e remoção das travas de largura -->
+    <div id="app" class="w-full pb-20">
+        
+        <header class="mb-8">
+            <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                <span class="icon-wrapper text-indigo-600" v-html="getIcon('settings', 32)"></span> 
+                Configurações do Sistema
+            </h1>
+            <p class="text-slate-500 mt-2 font-medium">Gerencie suas chaves de API e dados locais do MyAnalysis.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            <!-- Integração API Brapi -->
+            <div class="card-param p-6">
+                <h2 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                    <span class="icon-wrapper text-emerald-500" v-html="getIcon('link', 20)"></span>
+                    Integração Brapi (API Free)
+                </h2>
+                <p class="text-sm text-slate-500 mb-6">Insira seu token da Brapi para habilitar o módulo de Análise Fundamentalista e Técnica. Sem este token, as cotações não serão carregadas.</p>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Token de Acesso (API Key)</label>
+                        <input type="password" v-model="tokenBrapi" class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-3 font-mono" placeholder="Ex: aB1cD2eF3gH4iJ5kL6mN7oP8">
+                    </div>
+                    
+                    <button @click="salvarToken" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition">
+                        <span class="icon-wrapper" v-html="getIcon('save', 18)"></span>
+                        Salvar Token
+                    </button>
+                    
+                    <div v-if="salvoMsg" class="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-lg font-bold flex items-center gap-2">
+                        <span class="icon-wrapper" v-html="getIcon('check-circle', 16)"></span>
+                        {{ salvoMsg }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manutenção do Banco de Dados -->
+            <div class="card-param p-6">
+                <h2 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                    <span class="icon-wrapper text-amber-500" v-html="getIcon('database', 20)"></span>
+                    Banco de Dados
+                </h2>
+                <p class="text-sm text-slate-500 mb-6">O MyAnalysis não armazena seu patrimônio. O banco de dados local guarda apenas sua Watchlist, simulações de opções salvas e configurações.</p>
+                
+                <div class="space-y-4">
+                    <button @click="fazerBackup" class="w-full bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition">
+                        <span class="icon-wrapper" v-html="getIcon('download', 18)"></span>
+                        Fazer Backup Local (.db)
+                    </button>
+                    
+                    <div class="relative">
+                        <input type="file" ref="fileInput" @change="restaurarBackup" class="hidden" accept=".db">
+                        <button @click="$refs.fileInput.click()" class="w-full bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-slate-700 font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition">
+                            <span class="icon-wrapper" v-html="getIcon('upload', 18)"></span>
+                            Restaurar Backup Anterior
+                        </button>
+                    </div>
+
+                    <div v-if="statusRestore" class="p-3 bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg font-bold text-center">
+                        {{ statusRestore }}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const tokenBrapi = ref('');
+                const salvoMsg = ref('');
+                const statusRestore = ref('');
+
+                const getIcon = (name, size = 18) => {
+                    try {
+                        const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        if (window.lucide && window.lucide.icons[iconName]) {
+                            const svgElement = window.lucide.createElement(window.lucide.icons[iconName]);
+                            svgElement.setAttribute('width', size);
+                            svgElement.setAttribute('height', size);
+                            svgElement.setAttribute('stroke-width', 2.5);
+                            return svgElement.outerHTML;
+                        }
+                        return "";
+                    } catch(e) { return ""; }
+                };
+
+                const carregarTudo = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/configuracoes/settings/brapi_token');
+                        const data = await res.json();
+                        if(data.value) tokenBrapi.value = data.value;
+                    } catch (e) { console.error("Erro ao carregar token", e); }
+                };
+
+                const salvarToken = async () => {
+                    try {
+                        await fetch('http://localhost:3002/api/configuracoes/settings', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ key: 'brapi_token', value: tokenBrapi.value })
+                        });
+                        salvoMsg.value = "Token salvo com sucesso!";
+                        setTimeout(() => salvoMsg.value = '', 3000);
+                    } catch (e) { console.error("Erro ao salvar", e); }
+                };
+
+                const fazerBackup = () => {
+                    window.location.href = 'http://localhost:3002/api/configuracoes/system/backup';
+                };
+
+                const restaurarBackup = async (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    if(!confirm("Atenção: Restaurar um backup irá apagar todas as configurações e simulações atuais. Deseja continuar?")) {
+                        event.target.value = '';
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('database', file);
+
+                    statusRestore.value = "Restaurando... Aguarde o aplicativo reiniciar.";
+                    try {
+                        const res = await fetch('http://localhost:3002/api/configuracoes/system/restore', { method: 'POST', body: formData });
+                        if (!res.ok) statusRestore.value = "Erro na restauração. Arquivo inválido.";
+                    } catch (e) { statusRestore.value = "Erro de conexão."; }
+                };
+
+                onMounted(() => {
+                    carregarTudo();
+                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
+                });
+
+                return { 
+                    tokenBrapi, salvoMsg, statusRestore,
+                    getIcon, salvarToken, fazerBackup, restaurarBackup
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

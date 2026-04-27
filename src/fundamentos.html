@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAnalysis - Fundamentos e Valuation</title>
+    
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/vue.global.js"></script>
+    <script src="libs/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; padding-bottom: 40px; }
+        .card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
+        .indicator-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; transition: all 0.2s; }
+        .indicator-card:hover { border-color: #3b82f6; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        /* Estilos do Autocomplete */
+        .autocomplete-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; margin-top: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .autocomplete-dropdown li { padding: 10px 16px; cursor: pointer; font-weight: 700; color: #334155; transition: background 0.1s; }
+        .autocomplete-dropdown li:hover { background: #f1f5f9; color: #4f46e5; }
+    </style>
+</head>
+<body class="p-8">
+    <div id="app" class="w-full" @click="mostrarOpcoes = false">
+        
+        <!-- Header & Barra de Pesquisa -->
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                    <span class="icon-wrapper text-indigo-600" v-html="getIcon('book-open', 32)"></span> 
+                    Screener & Valuation
+                </h1>
+                <p class="text-slate-500 mt-2 font-medium">Análise de múltiplos, saúde financeira e modelos de preço justo (C-Pro I).</p>
+            </div>
+
+            <!-- Pesquisa com Autocomplete -->
+            <div class="relative w-full md:w-80" @click.stop>
+                <input type="text" v-model="tickerSearch" @input="mostrarOpcoes = true" @focus="mostrarOpcoes = true" @keyup.enter="buscarAtivo" class="w-full bg-white border border-slate-300 text-slate-900 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block pl-10 p-3 pr-24 font-bold uppercase placeholder:normal-case placeholder:font-normal placeholder:text-slate-400" placeholder="Digite o Ticker (Ex: PETR4)">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span class="icon-wrapper text-slate-400" v-html="getIcon('search', 18)"></span>
+                </div>
+
+                <!-- Dropdown Autocomplete -->
+                <ul v-if="mostrarOpcoes && tickersFiltrados.length > 0" class="autocomplete-dropdown custom-scrollbar">
+                    <li v-for="t in tickersFiltrados" :key="t" @click="selecionarTicker(t)">{{ t }}</li>
+                </ul>
+
+                <button @click="buscarAtivo" class="absolute inset-y-1 right-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 text-sm font-bold transition flex items-center justify-center">
+                    <span v-if="loading" class="animate-spin icon-wrapper" v-html="getIcon('loader-2', 16)"></span>
+                    <span v-else>Buscar</span>
+                </button>
+            </div>
+        </header>
+
+        <div v-if="error" class="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl font-bold flex items-center gap-3 shadow-sm">
+            <span class="icon-wrapper" v-html="getIcon('alert-circle', 20)"></span>
+            {{ error }}
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            
+            <!-- RESULTADO PRINCIPAL -->
+            <div class="lg:col-span-3 space-y-6">
+                
+                <div v-if="!ativo && !loading" class="card p-12 text-center flex flex-col items-center justify-center text-slate-400 h-[500px] border-dashed border-2 bg-slate-50/50">
+                    <span class="icon-wrapper text-slate-300 mb-4" v-html="getIcon('bar-chart-2', 48)"></span>
+                    <h3 class="text-lg font-bold text-slate-600 mb-2">Screener Fundamentalista</h3>
+                    <p class="text-sm max-w-md">Busque um ativo para destrinchar seus múltiplos de mercado, saúde financeira, histórico de proventos e cálculo de Valor Intrínseco.</p>
+                </div>
+
+                <template v-if="ativo">
+                    
+                    <!-- 1. HEADER DO ATIVO -->
+                    <div class="card p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white">
+                        <div class="flex items-center gap-5">
+                            <div class="w-16 h-16 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden p-1 shrink-0">
+                                <img v-if="ativo.logourl" :src="ativo.logourl" :alt="ativo.symbol" class="w-full h-full object-contain">
+                                <span v-else class="text-2xl font-black text-slate-400">{{ ativo.symbol.substring(0,1) }}</span>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-3 mb-1">
+                                    <h2 class="text-2xl font-black text-slate-800">{{ ativo.symbol }}</h2>
+                                    <span class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-xs font-bold uppercase">{{ ativo.shortName }}</span>
+                                    <span v-if="ativo.summaryProfile?.sector" class="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-xs font-bold">{{ ativo.summaryProfile.sector }}</span>
+                                </div>
+                                <p class="text-3xl font-black" :class="ativo.regularMarketChangePercent >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                                    R$ {{ formatarMoeda(ativo.regularMarketPrice) }}
+                                    <span class="text-sm font-bold ml-2 opacity-80">
+                                        ({{ ativo.regularMarketChangePercent >= 0 ? '+' : '' }}{{ (ativo.regularMarketChangePercent || 0).toFixed(2) }}%)
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button @click="adicionarWatchlist(ativo.symbol)" class="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-4 rounded-xl flex items-center gap-2 transition text-sm shadow-sm">
+                                <span class="icon-wrapper text-amber-400" v-html="getIcon('star', 16)"></span> Favoritar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 2. MODELOS DE VALUATION (C-Pro I Lab) -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Benjamin Graham -->
+                        <div class="card p-5 bg-gradient-to-br from-slate-800 to-slate-900 text-white border-0">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center justify-between">
+                                Valor Intrínseco (Graham)
+                                <span class="icon-wrapper text-indigo-400" v-html="getIcon('calculator', 16)"></span>
+                            </h3>
+                            <div class="flex justify-between items-end">
+                                <div>
+                                    <p class="text-3xl font-black text-white">
+                                        {{ valorGraham ? 'R$ ' + formatarMoeda(valorGraham) : 'N/D' }}
+                                    </p>
+                                    <p class="text-[10px] text-slate-400 mt-1">Fórmula: √(22.5 * VPA * LPA)</p>
+                                </div>
+                                <div v-if="valorGraham" class="text-right">
+                                    <p class="text-xs font-bold text-slate-400 mb-1">Margem de Segurança</p>
+                                    <p class="text-lg font-black" :class="margemGraham > 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                        {{ margemGraham > 0 ? '+' : '' }}{{ margemGraham.toFixed(1) }}%
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Décio Bazin -->
+                        <div class="card p-5 bg-gradient-to-br from-indigo-800 to-indigo-900 text-white border-0">
+                            <h3 class="text-xs font-bold text-indigo-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+                                Preço Teto (Décio Bazin)
+                                <span class="icon-wrapper text-emerald-400" v-html="getIcon('trending-up', 16)"></span>
+                            </h3>
+                            <div class="flex justify-between items-end">
+                                <div>
+                                    <p class="text-3xl font-black text-white">
+                                        {{ precoTetoBazin ? 'R$ ' + formatarMoeda(precoTetoBazin) : 'N/D' }}
+                                    </p>
+                                    <p class="text-[10px] text-indigo-300 mt-1">Premissa: Yield mínimo de 6% a.a.</p>
+                                </div>
+                                <div v-if="precoTetoBazin" class="text-right">
+                                    <p class="text-xs font-bold text-indigo-300 mb-1">Potencial (Upside)</p>
+                                    <p class="text-lg font-black" :class="upsideBazin > 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                        {{ upsideBazin > 0 ? '+' : '' }}{{ upsideBazin.toFixed(1) }}%
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. MÚLTIPLOS DE MERCADO & RENTABILIDADE -->
+                    <div class="card p-6">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2 flex items-center gap-2">
+                            <span class="icon-wrapper text-blue-500" v-html="getIcon('pie-chart', 18)"></span>
+                            Indicadores Financeiros
+                        </h3>
+                        
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">P/L</p>
+                                <p class="text-xl font-black text-slate-800">{{ safeValue(ativo.defaultKeyStatistics?.trailingPE, 2) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Preço / Lucro</p>
+                            </div>
+                            
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">P/VP</p>
+                                <p class="text-xl font-black text-slate-800">{{ safeValue(ativo.defaultKeyStatistics?.priceToBook, 2) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Preço / VPA</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">ROE</p>
+                                <p class="text-xl font-black text-slate-800">{{ safePercent(ativo.financialData?.returnOnEquity) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Retorno s/ Patrimônio</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">ROA</p>
+                                <p class="text-xl font-black text-slate-800">{{ safePercent(ativo.financialData?.returnOnAssets) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Retorno s/ Ativos</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">VPA</p>
+                                <p class="text-xl font-black text-slate-800">R$ {{ safeValue(ativo.defaultKeyStatistics?.bookValue, 2) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Valor Patrimonial</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">LPA</p>
+                                <p class="text-xl font-black text-slate-800">R$ {{ safeValue(ativo.defaultKeyStatistics?.trailingEps, 2) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Lucro por Ação</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Margem Líq.</p>
+                                <p class="text-xl font-black text-slate-800">{{ safePercent(ativo.financialData?.profitMargins) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Lucro / Receita Líquida</p>
+                            </div>
+
+                            <div class="indicator-card">
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dívida / PL</p>
+                                <p class="text-xl font-black text-slate-800">{{ safeValue(ativo.financialData?.debtToEquity, 2) }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Alavancagem</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. HISTÓRICO DE DIVIDENDOS (Gráfico) -->
+                    <div class="card p-6">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-1 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="icon-wrapper text-emerald-500" v-html="getIcon('dollar-sign', 18)"></span>
+                                Histórico de Proventos (Anual)
+                            </div>
+                            <span class="text-xs font-bold px-2 py-1 bg-emerald-50 text-emerald-600 rounded">
+                                Yield: {{ safePercent(ativo.summaryDetail?.dividendYield) }}
+                            </span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mb-6">Volume total de dividendos distribuídos por ano.</p>
+                        
+                        <div class="relative w-full h-[250px]">
+                            <canvas id="dividendChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 5. PERFIL DA EMPRESA -->
+                    <div v-if="ativo.summaryProfile" class="card p-6 bg-slate-50 border-0">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <span class="icon-wrapper text-slate-500" v-html="getIcon('info', 18)"></span>
+                            Sobre a Empresa
+                        </h3>
+                        <div class="flex flex-wrap gap-4 mb-4">
+                            <span class="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full">Indústria: {{ ativo.summaryProfile.industry || 'N/D' }}</span>
+                            <span class="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full">Funcionários: {{ (ativo.summaryProfile.fullTimeEmployees || 0).toLocaleString('pt-BR') }}</span>
+                        </div>
+                        <p class="text-xs text-slate-600 leading-relaxed text-justify line-clamp-4 hover:line-clamp-none transition-all duration-300">
+                            {{ ativo.summaryProfile.longBusinessSummary || 'Descrição não disponibilizada pela B3.' }}
+                        </p>
+                    </div>
+
+                </template>
+            </div>
+
+            <!-- SIDEBAR DIREITA: WATCHLIST -->
+            <div class="lg:col-span-1">
+                <div class="card p-5 h-[calc(100vh-140px)] sticky top-6 flex flex-col shadow-sm">
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
+                        Watchlist
+                        <span class="icon-wrapper text-amber-400" v-html="getIcon('star', 16)"></span>
+                    </h3>
+                    
+                    <div class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                        <div v-if="watchlist.length === 0" class="text-center text-xs text-slate-400 py-6">
+                            Nenhum ativo favoritado.
+                        </div>
+
+                        <div v-for="item in watchlist" :key="item.id" class="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg group transition cursor-pointer" @click="tickerSearch = item.ticker; buscarAtivo()">
+                            <div>
+                                <p class="text-sm font-bold text-slate-800">{{ item.ticker }}</p>
+                            </div>
+                            <button @click.stop="removerWatchlist(item.id)" class="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition p-1">
+                                <span class="icon-wrapper" v-html="getIcon('trash-2', 16)"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const tickerSearch = ref('');
+                const loading = ref(false);
+                const ativo = ref(null);
+                const error = ref('');
+                const watchlist = ref([]);
+                let dividendChartInst = null;
+                
+                // Variáveis para o Autocomplete
+                const tickersDisponiveis = ref([]);
+                const mostrarOpcoes = ref(false);
+
+                const getIcon = (name, size = 18) => {
+                    try {
+                        const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        if (window.lucide && window.lucide.icons[iconName]) {
+                            const svgElement = window.lucide.createElement(window.lucide.icons[iconName]);
+                            svgElement.setAttribute('width', size);
+                            svgElement.setAttribute('height', size);
+                            svgElement.setAttribute('stroke-width', 2.5);
+                            return svgElement.outerHTML;
+                        }
+                        return "";
+                    } catch(e) { return ""; }
+                };
+
+                const formatarMoeda = (valor) => {
+                    if (valor === undefined || valor === null || isNaN(valor)) return '0,00';
+                    return Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                };
+
+                const safeValue = (val, decimais = 2) => {
+                    if (val === undefined || val === null || isNaN(val)) return 'N/D';
+                    return Number(val).toLocaleString('pt-BR', { minimumFractionDigits: decimais, maximumFractionDigits: decimais });
+                };
+
+                const safePercent = (val) => {
+                    if (val === undefined || val === null) return 'N/D';
+                    if (typeof val === 'string' && val.includes('%')) return val;
+                    return (Number(val) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+                };
+
+                // -------------------------------------------------------------
+                // LÓGICA DE AUTOCOMPLETE
+                // -------------------------------------------------------------
+                const carregarBancoDeTickers = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/available');
+                        tickersDisponiveis.value = await res.json();
+                    } catch (e) { console.error("Erro ao carregar lista de tickers"); }
+                };
+
+                const tickersFiltrados = computed(() => {
+                    if (!tickerSearch.value) return [];
+                    const search = tickerSearch.value.toUpperCase();
+                    return tickersDisponiveis.value.filter(t => t.includes(search)).slice(0, 8); // Limite de 8 resultados
+                });
+
+                const selecionarTicker = (ticker) => {
+                    tickerSearch.value = ticker;
+                    mostrarOpcoes.value = false;
+                    buscarAtivo();
+                };
+
+                // -------------------------------------------------------------
+                // CÁLCULOS DE VALUATION
+                // -------------------------------------------------------------
+                const valorGraham = computed(() => {
+                    if (!ativo.value) return null;
+                    const vpa = ativo.value.defaultKeyStatistics?.bookValue;
+                    let lpa = ativo.value.defaultKeyStatistics?.trailingEps;
+                    if (!lpa && ativo.value.defaultKeyStatistics?.trailingPE) {
+                        lpa = ativo.value.regularMarketPrice / ativo.value.defaultKeyStatistics.trailingPE;
+                    }
+                    if (vpa > 0 && lpa > 0) {
+                        return Math.sqrt(22.5 * vpa * lpa);
+                    }
+                    return null;
+                });
+
+                const margemGraham = computed(() => {
+                    if (!valorGraham.value || !ativo.value) return 0;
+                    return ((valorGraham.value / ativo.value.regularMarketPrice) - 1) * 100;
+                });
+
+                const precoTetoBazin = computed(() => {
+                    if (!ativo.value) return null;
+                    const yieldVal = ativo.value.summaryDetail?.dividendYield; 
+                    if (yieldVal > 0) {
+                        const div12m = yieldVal * ativo.value.regularMarketPrice;
+                        return div12m / 0.06;
+                    }
+                    return null;
+                });
+
+                const upsideBazin = computed(() => {
+                    if (!precoTetoBazin.value || !ativo.value) return 0;
+                    return ((precoTetoBazin.value / ativo.value.regularMarketPrice) - 1) * 100;
+                });
+
+                // -------------------------------------------------------------
+                // LÓGICA DA API E GRÁFICO
+                // -------------------------------------------------------------
+                const carregarWatchlist = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/watchlist');
+                        watchlist.value = await res.json();
+                    } catch (e) { console.error("Erro Watchlist:", e); }
+                };
+
+                const renderDividendChart = (dividendsData) => {
+                    const ctx = document.getElementById('dividendChart');
+                    if (!ctx) return;
+                    if (dividendChartInst) dividendChartInst.destroy();
+
+                    if (!dividendsData || !dividendsData.cashDividends || dividendsData.cashDividends.length === 0) {
+                        return;
+                    }
+
+                    const divPorAno = {};
+                    dividendsData.cashDividends.forEach(d => {
+                        const ano = new Date(d.paymentDate).getFullYear();
+                        if (!divPorAno[ano]) divPorAno[ano] = 0;
+                        divPorAno[ano] += d.rate;
+                    });
+
+                    const anos = Object.keys(divPorAno).sort().slice(-6); 
+                    const valores = anos.map(a => divPorAno[a]);
+
+                    dividendChartInst = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: anos,
+                            datasets: [{
+                                label: 'Dividendos Pagos (R$)',
+                                data: valores,
+                                backgroundColor: '#10b981', 
+                                borderRadius: 6,
+                                maxBarThickness: 40
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { 
+                                legend: { display: false },
+                                tooltip: { callbacks: { label: function(c) { return 'R$ ' + c.raw.toFixed(4); } } }
+                            },
+                            scales: {
+                                x: { grid: { display: false } },
+                                y: { grid: { color: '#f1f5f9' }, ticks: { callback: (val) => 'R$ ' + val } }
+                            }
+                        }
+                    });
+                };
+
+                const buscarAtivo = async () => {
+                    if (!tickerSearch.value.trim()) return;
+                    
+                    mostrarOpcoes.value = false; // Fecha o autocomplete se der enter
+                    error.value = '';
+                    loading.value = true;
+                    ativo.value = null;
+
+                    const ticker = tickerSearch.value.trim().toUpperCase();
+
+                    try {
+                        const res = await fetch(`http://localhost:3002/api/brapi/quote/${ticker}`);
+                        const data = await res.json();
+
+                        if (!res.ok) throw new Error(data.error || "Erro ao buscar ativo. Ele pode não possuir dados fundamentalistas suficientes.");
+                        
+                        ativo.value = data;
+                        
+                        setTimeout(() => {
+                            if (ativo.value.dividendsData) {
+                                renderDividendChart(ativo.value.dividendsData);
+                            }
+                        }, 100);
+
+                    } catch (e) {
+                        // Trata de forma mais limpa o erro de dados ausentes para evitar a tela branca com 500 no console
+                        error.value = "Os dados fundamentalistas da empresa pesquisada (" + ticker + ") não estão completos na base da B3/Brapi. Escolha outro ativo válido.";
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const adicionarWatchlist = async (ticker) => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/watchlist', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ticker: ticker })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error);
+                        
+                        carregarWatchlist();
+                    } catch (e) {
+                        error.value = e.message;
+                        setTimeout(() => error.value = '', 4000);
+                    }
+                };
+
+                const removerWatchlist = async (id) => {
+                    try {
+                        await fetch(`http://localhost:3002/api/brapi/watchlist/${id}`, { method: 'DELETE' });
+                        carregarWatchlist();
+                    } catch (e) {}
+                };
+
+                onMounted(() => {
+                    carregarBancoDeTickers();
+                    carregarWatchlist();
+                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
+                });
+
+                return { 
+                    tickerSearch, loading, ativo, error, watchlist,
+                    valorGraham, margemGraham, precoTetoBazin, upsideBazin,
+                    buscarAtivo, adicionarWatchlist, removerWatchlist,
+                    getIcon, formatarMoeda, safeValue, safePercent,
+                    tickersDisponiveis, tickersFiltrados, mostrarOpcoes, selecionarTicker
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

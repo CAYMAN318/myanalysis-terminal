@@ -1,0 +1,52 @@
+{
+  "name": "myanalysis",
+  "version": "1.0.0",
+  "description": "Terminal de Análise de Ativos e Laboratório de Opções",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "rebuild": "electron-rebuild"
+  },
+  "author": "Aurélio",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.15.0",
+    "better-sqlite3": "^11.0.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "electron": "^28.3.0",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9"
+  },
+  "build": {
+    "appId": "com.myanalysis.app",
+    "productName": "MyAnalysis",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!bd_myanalysis.db",
+      "!bd_myanalysis.db-journal",
+      "!.gitignore",
+      "!dist",
+      "!.git"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "MyAnalysis"
+    }
+  }
+}
