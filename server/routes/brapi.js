@@ -183,21 +183,49 @@ router.get('/options-chain/:ticker', async (req, res) => {
         const { ticker } = req.params;
         const tickerSA = formatTickerForYahoo(ticker);
         const url = `https://query1.finance.yahoo.com/v7/finance/options/${tickerSA}`;
+        
+        console.log(`\n🔎 [OPÇÕES] Buscando grade para: ${tickerSA} | URL: ${url}`);
+        
         const response = await fetchWithSession(url);
         
         const result = response.data?.optionChain?.result?.[0];
-        if (!result || !result.options || result.options.length === 0) throw new Error("Nenhuma opção listada para este ativo no momento.");
+        if (!result || !result.options || result.options.length === 0) {
+            throw new Error(`O Yahoo Finance retornou uma grade vazia para ${tickerSA}.`);
+        }
 
-        const spotPrice = result.quote.regularMarketPrice;
+        const spotPrice = result.quote?.regularMarketPrice || 0;
         const optionsData = result.options[0];
-        const expirationDate = optionsData.expirationDate; 
+        const expirationDate = optionsData.expirationDate || Math.floor(Date.now() / 1000) + 2592000; 
         
-        const calls = optionsData.calls.map(c => ({ ticker: c.contractSymbol, strike: c.strike, lastPrice: c.lastPrice, type: 'CALL' }));
-        const puts = optionsData.puts.map(p => ({ ticker: p.contractSymbol, strike: p.strike, lastPrice: p.lastPrice, type: 'PUT' }));
+        // Assegura que calls e puts não quebrem o código se vierem undefined
+        const calls = (optionsData.calls || []).map(c => ({ 
+            ticker: c.contractSymbol, 
+            strike: c.strike, 
+            lastPrice: c.lastPrice || 0.01, 
+            type: 'CALL' 
+        }));
+        
+        const puts = (optionsData.puts || []).map(p => ({ 
+            ticker: p.contractSymbol, 
+            strike: p.strike, 
+            lastPrice: p.lastPrice || 0.01, 
+            type: 'PUT' 
+        }));
 
+        console.log(`✅ [OPÇÕES] Sucesso: Encontradas ${calls.length} Calls e ${puts.length} Puts.`);
         res.json({ underlying: ticker.replace('.SA', ''), spotPrice, expirationDate, calls, puts });
+
     } catch (error) {
-        res.status(500).json({ error: "Erro ao buscar a grade de opções." });
+        // AQUI ESTÁ O BLINDAGEM DO ERRO: Agora ele vai gritar no seu terminal Node
+        console.error(`\n❌ [ERRO OPÇÕES - ${req.params.ticker}]:`, error.message);
+        
+        if (error.response) {
+            console.error("Status da API (Yahoo):", error.response.status);
+        }
+
+        res.status(500).json({ 
+            error: `Falha na busca da B3: ${error.message} (Tente PETR4 ou VALE3, pois o Yahoo às vezes bloqueia papéis com pouca liquidez em opções).` 
+        });
     }
 });
 
