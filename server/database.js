@@ -43,6 +43,29 @@ db.exec(`
         key TEXT PRIMARY KEY,
         value TEXT
     );
+
+    -- ============================================================================
+    -- MÓDULO DE TREINAMENTO (PAPER TRADING / SIMULADOR)
+    -- ============================================================================
+
+    -- Conta Corrente Virtual
+    CREATE TABLE IF NOT EXISTS VirtualAccount (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        balance REAL NOT NULL DEFAULT 100000.0
+    );
+
+    -- Garante que o saldo inicial de 100k seja criado na primeira vez
+    INSERT OR IGNORE INTO VirtualAccount (id, balance) VALUES (1, 100000.0);
+
+    -- Posições Abertas no Simulador
+    CREATE TABLE IF NOT EXISTS VirtualPositions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL, -- 'CALL', 'PUT', 'STOCK'
+        quantity INTEGER NOT NULL,
+        average_price REAL NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 module.exports = db;

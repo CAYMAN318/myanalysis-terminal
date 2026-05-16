@@ -23,53 +23,74 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 10px; }
         .custom-scrollbar:hover::-webkit-scrollbar-thumb { background-color: #cbd5e1; }
 
-        iframe { width: 100%; height: 100%; border: none; }
-        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; }
+        iframe { width: 100%; height: 100vh; border: none; }
     </style>
 </head>
-<body class="h-screen flex">
+<body class="flex h-screen w-full">
 
     <div id="app" class="flex w-full h-full">
-        
-        <aside class="w-72 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm h-full">
+        <!-- BARRA LATERAL (SIDEBAR) -->
+        <aside class="w-64 bg-white border-r border-slate-200 flex flex-col h-full shadow-sm relative z-10 flex-shrink-0">
             
-            <div class="p-6 pb-4 border-b border-slate-50">
-                <h1 class="text-xl font-black text-slate-900 tracking-tighter italic">MyAnalysis <span class="text-indigo-600">.</span></h1>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Screener & Opções Lab</p>
+            <!-- LOGO -->
+            <div class="p-6 border-b border-slate-100">
+                <h1 class="text-2xl font-black tracking-tighter text-slate-900 flex items-center gap-2">
+                    <span class="bg-indigo-600 text-white p-1.5 rounded-lg flex items-center justify-center">
+                        <span class="icon-wrapper" v-html="getIcon('line-chart', 20)"></span>
+                    </span>
+                    MyAnalysis
+                </h1>
+                <p class="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-widest">Terminal Estratégico</p>
             </div>
 
-            <nav class="flex-1 overflow-y-auto custom-scrollbar px-4 pt-6 pb-6">
+            <!-- MENU DE NAVEGAÇÃO -->
+            <nav class="flex-1 p-4 overflow-y-auto custom-scrollbar">
                 
-                <p class="px-4 text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">Mercado</p>
-                <button @click="navegar('dashboard')" :class="{active: currentPath === 'dashboard'}" class="sidebar-item w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-500">
-                    <span class="icon-wrapper" v-html="getIcon('bar-chart-2', 18)"></span> Visão Geral
+                <p class="text-xs font-bold text-slate-400 uppercase mb-3 ml-2 tracking-wider">Visão Geral</p>
+                <button @click="navegar('dashboard')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item', currentPath === 'dashboard' ? 'active' : 'text-slate-500']">
+                    <span class="icon-wrapper" v-html="getIcon('layout-dashboard', 20)"></span>
+                    Dashboard
                 </button>
 
-                <button @click="navegar('fundamentos')" :class="{active: currentPath === 'fundamentos'}" class="sidebar-item w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-500">
-                    <span class="icon-wrapper" v-html="getIcon('book-open', 18)"></span> Análise Fundamentalista
+                <p class="text-xs font-bold text-slate-400 uppercase mt-6 mb-3 ml-2 tracking-wider">Módulos de Análise</p>
+                
+                <button @click="navegar('fundamentos')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item', currentPath === 'fundamentos' ? 'active' : 'text-slate-500']">
+                    <span class="icon-wrapper" v-html="getIcon('building-2', 20)"></span>
+                    Fundamentos
                 </button>
 
-                <button @click="navegar('tecnica')" :class="{active: currentPath === 'tecnica'}" class="sidebar-item w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-500">
-                    <span class="icon-wrapper" v-html="getIcon('activity', 18)"></span> Análise Técnica (Swing)
+                <button @click="navegar('tecnica')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item', currentPath === 'tecnica' ? 'active' : 'text-slate-500']">
+                    <span class="icon-wrapper" v-html="getIcon('candlestick-chart', 20)"></span>
+                    Análise Técnica
                 </button>
 
-                <p class="px-4 text-xs font-semibold text-slate-400 mt-6 mb-2 uppercase tracking-wider">Derivativos</p>
-                <button @click="navegar('opcoes')" :class="{active: currentPath === 'opcoes'}" class="sidebar-item w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-500">
-                    <span class="icon-wrapper" v-html="getIcon('function-square', 18)"></span> Laboratório de Opções
+                <button @click="navegar('opcoes')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item', currentPath === 'opcoes' ? 'active' : 'text-slate-500']">
+                    <span class="icon-wrapper" v-html="getIcon('function-square', 20)"></span>
+                    Lab de Opções
                 </button>
 
-                <p class="px-4 text-xs font-semibold text-slate-400 mt-6 mb-2 uppercase tracking-wider">Sistema</p>
-                <button @click="navegar('configuracoes')" :class="{active: currentPath === 'configuracoes'}" class="sidebar-item w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-500">
-                    <span class="icon-wrapper" v-html="getIcon('settings', 18)"></span> Configurações da API
+                <!-- NOVO MÓDULO: SIMULADOR -->
+                <p class="text-xs font-bold text-slate-400 uppercase mt-6 mb-3 ml-2 tracking-wider">Treinamento</p>
+                <button @click="navegar('simulador')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item text-left', currentPath === 'simulador' ? 'active bg-emerald-600 text-white' : 'text-emerald-600 hover:bg-emerald-50']">
+                    <span class="icon-wrapper" v-html="getIcon('gamepad-2', 20)"></span>
+                    Mesa de Operações
                 </button>
 
             </nav>
+
+            <!-- CONFIGURAÇÕES (RODAPÉ DA SIDEBAR) -->
+            <div class="p-4 border-t border-slate-100 bg-slate-50">
+                <button @click="navegar('configuracoes')" :class="['w-full flex items-center gap-3 px-4 py-3 text-sm font-bold sidebar-item', currentPath === 'configuracoes' ? 'active' : 'text-slate-500']">
+                    <span class="icon-wrapper" v-html="getIcon('settings', 20)"></span>
+                    Configurações
+                </button>
+            </div>
         </aside>
 
-        <main class="flex-1 relative bg-slate-50 overflow-hidden">
-            <iframe :src="iframeSrc" id="contentFrame" class="w-full h-full"></iframe>
+        <!-- ÁREA PRINCIPAL (IFRAME) -->
+        <main class="flex-1 h-full bg-[#f8fafc] relative">
+            <iframe :src="iframeSrc" title="Conteúdo Principal"></iframe>
         </main>
-
     </div>
 
     <script>
@@ -80,7 +101,6 @@
                 const currentPath = ref('dashboard');
                 const iframeSrc = ref('dashboard.html');
 
-                // Função de Ícone já corrigida para a nova versão do Lucide
                 const getIcon = (name, size = 18) => {
                     try {
                         const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');

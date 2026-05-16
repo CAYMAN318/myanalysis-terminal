@@ -1,6 +1,6 @@
 {
   "name": "myanalysis",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Terminal de Análise de Ativos e Laboratório de Opções",
   "main": "main.js",
   "scripts": {

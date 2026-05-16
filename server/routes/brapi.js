@@ -183,49 +183,21 @@ router.get('/options-chain/:ticker', async (req, res) => {
         const { ticker } = req.params;
         const tickerSA = formatTickerForYahoo(ticker);
         const url = `https://query1.finance.yahoo.com/v7/finance/options/${tickerSA}`;
-        
-        console.log(`\n🔎 [OPÇÕES] Buscando grade para: ${tickerSA} | URL: ${url}`);
-        
         const response = await fetchWithSession(url);
         
         const result = response.data?.optionChain?.result?.[0];
-        if (!result || !result.options || result.options.length === 0) {
-            throw new Error(`O Yahoo Finance retornou uma grade vazia para ${tickerSA}.`);
-        }
+        if (!result || !result.options || result.options.length === 0) throw new Error("Nenhuma opção listada para este ativo no momento.");
 
-        const spotPrice = result.quote?.regularMarketPrice || 0;
+        const spotPrice = result.quote.regularMarketPrice;
         const optionsData = result.options[0];
-        const expirationDate = optionsData.expirationDate || Math.floor(Date.now() / 1000) + 2592000; 
+        const expirationDate = optionsData.expirationDate; 
         
-        // Assegura que calls e puts não quebrem o código se vierem undefined
-        const calls = (optionsData.calls || []).map(c => ({ 
-            ticker: c.contractSymbol, 
-            strike: c.strike, 
-            lastPrice: c.lastPrice || 0.01, 
-            type: 'CALL' 
-        }));
-        
-        const puts = (optionsData.puts || []).map(p => ({ 
-            ticker: p.contractSymbol, 
-            strike: p.strike, 
-            lastPrice: p.lastPrice || 0.01, 
-            type: 'PUT' 
-        }));
+        const calls = optionsData.calls.map(c => ({ ticker: c.contractSymbol, strike: c.strike, lastPrice: c.lastPrice, type: 'CALL' }));
+        const puts = optionsData.puts.map(p => ({ ticker: p.contractSymbol, strike: p.strike, lastPrice: p.lastPrice, type: 'PUT' }));
 
-        console.log(`✅ [OPÇÕES] Sucesso: Encontradas ${calls.length} Calls e ${puts.length} Puts.`);
         res.json({ underlying: ticker.replace('.SA', ''), spotPrice, expirationDate, calls, puts });
-
     } catch (error) {
-        // AQUI ESTÁ O BLINDAGEM DO ERRO: Agora ele vai gritar no seu terminal Node
-        console.error(`\n❌ [ERRO OPÇÕES - ${req.params.ticker}]:`, error.message);
-        
-        if (error.response) {
-            console.error("Status da API (Yahoo):", error.response.status);
-        }
-
-        res.status(500).json({ 
-            error: `Falha na busca da B3: ${error.message} (Tente PETR4 ou VALE3, pois o Yahoo às vezes bloqueia papéis com pouca liquidez em opções).` 
-        });
+        res.status(500).json({ error: "Erro ao buscar a grade de opções." });
     }
 });
 
@@ -311,6 +283,87 @@ router.post('/simulations', (req, res) => {
 router.delete('/simulations/:id', (req, res) => {
     try { db.prepare("DELETE FROM SavedSimulations WHERE id = ?").run(req.params.id); res.json({ success: true }); } 
     catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================================================
+// 8. SIMULADOR DE OPÇÕES (PAPER TRADING)
+// ============================================================================
+router.get('/paper-trading/portfolio', (req, res) => {
+    try {
+        const account = db.prepare("SELECT balance FROM VirtualAccount WHERE id = 1").get();
+        const positions = db.prepare("SELECT * FROM VirtualPositions ORDER BY updated_at DESC").all();
+        res.json({ balance: account.balance, positions });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/paper-trading/trade', (req, res) => {
+    const { ticker, type, quantity, price } = req.body;
+    
+    // quantity positivo = Compra, negativo = Venda
+    if (!ticker || !type || quantity === 0 || price <= 0) {
+        return res.status(400).json({ error: "Dados da ordem inválidos." });
+    }
+
+    const totalCost = quantity * price; // Custos da boleta (se quantity < 0, totalCost é negativo)
+
+    try {
+        const trade = db.transaction(() => {
+            const account = db.prepare("SELECT balance FROM VirtualAccount WHERE id = 1").get();
+            
+            // Se for compra (cost > 0) e não tiver saldo, bloqueia.
+            if (totalCost > 0 && account.balance < totalCost) {
+                throw new Error("Saldo em Conta Corrente insuficiente para esta operação.");
+            }
+
+            // Atualiza o Saldo (Subtrai o custo. Se for venda, subtrair um negativo é somar)
+            db.prepare("UPDATE VirtualAccount SET balance = balance - ? WHERE id = 1").run(totalCost);
+
+            // Gerencia a Posição
+            const existing = db.prepare("SELECT * FROM VirtualPositions WHERE ticker = ?").get(ticker);
+
+            if (existing) {
+                const newQty = existing.quantity + quantity;
+                
+                if (newQty === 0) {
+                    // Zerou a posição
+                    db.prepare("DELETE FROM VirtualPositions WHERE ticker = ?").run(ticker);
+                } else {
+                    let newAvgPrice = existing.average_price;
+                    
+                    // Recalcula o Preço Médio apenas se estiver aumentando a posição (fazendo médio)
+                    if (Math.sign(existing.quantity) === Math.sign(quantity)) {
+                        newAvgPrice = ((Math.abs(existing.quantity) * existing.average_price) + (Math.abs(quantity) * price)) / Math.abs(newQty);
+                    } 
+                    // Se a operação "virou a mão" (ex: tinha 100, vendeu 200, ficou com -100)
+                    else if (Math.sign(existing.quantity) !== Math.sign(newQty)) {
+                        newAvgPrice = price;
+                    }
+                    
+                    db.prepare("UPDATE VirtualPositions SET quantity = ?, average_price = ?, updated_at = CURRENT_TIMESTAMP WHERE ticker = ?").run(newQty, newAvgPrice, ticker);
+                }
+            } else {
+                // Nova posição
+                db.prepare("INSERT INTO VirtualPositions (ticker, type, quantity, average_price) VALUES (?, ?, ?, ?)").run(ticker, type, quantity, price);
+            }
+        });
+
+        trade(); // Executa a transação
+        res.json({ success: true, message: "Ordem executada com sucesso!" });
+        
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Rota de emergência para resetar o jogo caso a conta "quebre"
+router.post('/paper-trading/reset', (req, res) => {
+    try {
+        db.transaction(() => {
+            db.prepare("UPDATE VirtualAccount SET balance = 100000.0 WHERE id = 1").run();
+            db.prepare("DELETE FROM VirtualPositions").run();
+        })();
+        res.json({ success: true, message: "Simulador resetado. Conta de R$ 100.000 restaurada." });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

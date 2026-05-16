@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyAnalysis - Mesa de Operações</title>
+    
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/vue.global.js"></script>
+    <script src="libs/lucide.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; padding-bottom: 40px; }
+        .card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
+        span.icon-wrapper { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+        .input-group label { display: block; font-size: 0.70rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
+        .input-group input, .input-group select { width: 100%; background: #f8fafc; border: 1px solid #cbd5e1; color: #0f172a; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-weight: 700; transition: all 0.2s; }
+        .input-group input:focus, .input-group select:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .table-row-hover:hover { background-color: #f1f5f9; cursor: pointer; }
+        
+        /* Cores específicas da Boleta */
+        .btn-comprar { background-color: #10b981; color: white; }
+        .btn-comprar:hover { background-color: #059669; }
+        .btn-vender { background-color: #f43f5e; color: white; }
+        .btn-vender:hover { background-color: #e11d48; }
+    </style>
+</head>
+<body class="p-8">
+    <div id="app" class="w-full">
+        
+        <!-- HEADER E SALDO -->
+        <header class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                    <span class="icon-wrapper text-emerald-600" v-html="getIcon('gamepad-2', 32)"></span> 
+                    Mesa de Operações (Simulador)
+                </h1>
+                <p class="text-slate-500 mt-2 font-medium">Treinamento prático de execução, custódia e risco (Paper Trading).</p>
+            </div>
+
+            <!-- Painel de Conta Virtual -->
+            <div class="bg-slate-900 rounded-2xl p-4 text-white flex items-center gap-6 shadow-lg border border-slate-800">
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Poder de Compra (Caixa)</p>
+                    <p class="text-2xl font-black" :class="portfolio.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                        R$ {{ formatarMoeda(portfolio.balance) }}
+                    </p>
+                </div>
+                <div class="border-l border-slate-700 pl-6 flex flex-col gap-2">
+                    <button @click="carregarPortfolio" class="text-xs font-bold text-slate-300 hover:text-white flex items-center gap-2 transition">
+                        <span class="icon-wrapper" v-html="getIcon('refresh-cw', 14)"></span> Atualizar
+                    </button>
+                    <button @click="resetarConta" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-2 transition">
+                        <span class="icon-wrapper" v-html="getIcon('alert-triangle', 12)"></span> Resetar Conta
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- ALERTA DE ERRO/SUCESSO/AVISO -->
+        <div v-if="mensagem.texto" :class="['mb-6 p-4 rounded-xl font-bold flex items-center justify-between shadow-sm transition-all', 
+            mensagem.tipo === 'erro' ? 'bg-rose-50 border border-rose-200 text-rose-700' : 
+            mensagem.tipo === 'aviso' ? 'bg-amber-50 border border-amber-200 text-amber-700' : 
+            'bg-emerald-50 border border-emerald-200 text-emerald-700']">
+            <div class="flex items-center gap-3">
+                <span class="icon-wrapper" v-html="getIcon(mensagem.tipo === 'erro' ? 'alert-circle' : (mensagem.tipo === 'aviso' ? 'alert-triangle' : 'check-circle'), 20)"></span>
+                {{ mensagem.texto }}
+            </div>
+            <button @click="mensagem.texto = ''" class="opacity-50 hover:opacity-100"><span class="icon-wrapper" v-html="getIcon('x', 16)"></span></button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- COLUNA ESQUERDA: GRADE DE OPÇÕES E BOLETA -->
+            <div class="lg:col-span-5 space-y-6">
+                
+                <!-- BOLETA DE ORDEM -->
+                <div class="card p-6 border-t-4 border-t-emerald-500 shadow-md">
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+                        <span class="icon-wrapper text-emerald-500" v-html="getIcon('terminal', 18)"></span>
+                        Boleta de Ordem
+                    </h3>
+
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="input-group">
+                            <label>Ativo (Ticker)</label>
+                            <input type="text" v-model="boleta.ticker" class="uppercase" placeholder="Ex: PETR4">
+                        </div>
+                        <div class="input-group">
+                            <label>Tipo</label>
+                            <select v-model="boleta.type">
+                                <option value="CALL">Opção de Compra (CALL)</option>
+                                <option value="PUT">Opção de Venda (PUT)</option>
+                                <option value="STOCK">Ação (SPOT)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="input-group">
+                            <label>Quantidade</label>
+                            <input type="number" step="100" v-model="boleta.quantity" placeholder="Ex: 100">
+                        </div>
+                        <div class="input-group">
+                            <label>Preço Unitário (R$)</label>
+                            <input type="number" step="0.01" v-model="boleta.price" placeholder="Ex: 0.50">
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 p-3 rounded-lg flex justify-between items-center mb-6 border border-slate-200">
+                        <span class="text-xs font-bold text-slate-500 uppercase">Volume Financeiro:</span>
+                        <span class="text-lg font-black text-slate-800">R$ {{ formatarMoeda(boleta.quantity * boleta.price) }}</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <button @click="enviarOrdem('compra')" class="btn-comprar font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm">
+                            <span class="icon-wrapper" v-html="getIcon('arrow-down-to-line', 18)"></span> COMPRAR
+                        </button>
+                        <button @click="enviarOrdem('venda')" class="btn-vender font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm">
+                            <span class="icon-wrapper" v-html="getIcon('arrow-up-from-line', 18)"></span> VENDER
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-center text-slate-400 font-bold mt-3">* Vender opções que você não possui cria uma posição vendida a descoberto (Short).</p>
+                </div>
+
+                <!-- BUSCAR GRADE PARA PREENCHER BOLETA -->
+                <div class="card p-6 bg-slate-800 text-white border-slate-800">
+                    <h3 class="text-sm font-black text-slate-300 uppercase tracking-wider mb-4 flex items-center justify-between border-b border-slate-700 pb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="icon-wrapper text-amber-400" v-html="getIcon('search', 18)"></span> Radar de Mercado
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="gradeFiltro = 'CALL'" :class="['text-[10px] font-bold px-2 py-1 rounded transition', gradeFiltro === 'CALL' ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-400']">CALLS</button>
+                            <button @click="gradeFiltro = 'PUT'" :class="['text-[10px] font-bold px-2 py-1 rounded transition', gradeFiltro === 'PUT' ? 'bg-rose-500 text-white' : 'bg-slate-700 text-slate-400']">PUTS</button>
+                        </div>
+                    </h3>
+
+                    <div class="flex gap-2 mb-4">
+                        <input type="text" v-model="buscaTicker" @keyup.enter="buscarGrade" class="flex-1 bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 font-bold uppercase text-sm placeholder:normal-case placeholder:text-slate-400 placeholder:font-normal" placeholder="Ativo objeto (ex: VALE3)">
+                        <button @click="buscarGrade" class="bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg px-4 font-bold transition flex items-center justify-center">
+                            <span v-if="loadingGrade" class="animate-spin icon-wrapper" v-html="getIcon('loader-2', 16)"></span>
+                            <span v-else class="icon-wrapper" v-html="getIcon('arrow-right', 16)"></span>
+                        </button>
+                    </div>
+
+                    <div v-if="gradeOpcoes.length > 0" class="max-h-64 overflow-y-auto custom-scrollbar bg-slate-900 rounded-lg border border-slate-700">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead class="sticky top-0 bg-slate-800 shadow-sm">
+                                <tr class="text-slate-400 uppercase tracking-wider">
+                                    <th class="p-2 font-bold pl-3">Ticker</th>
+                                    <th class="p-2 font-bold text-right">Strike</th>
+                                    <th class="p-2 font-bold text-right pr-3">Prêmio</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="op in opcoesFiltradas" :key="op.ticker" @click="preencherBoleta(op)" class="border-b border-slate-800 hover:bg-slate-700 cursor-pointer transition">
+                                    <td class="p-2 pl-3 font-bold text-slate-200">{{ op.ticker }}</td>
+                                    <td class="p-2 text-right text-slate-300 font-mono">R$ {{ formatarMoeda(op.strike) }}</td>
+                                    <td class="p-2 text-right pr-3 font-bold" :class="op.type === 'CALL' ? 'text-emerald-400' : 'text-rose-400'">R$ {{ formatarMoeda(op.lastPrice) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div v-else-if="!loadingGrade" class="text-center text-xs text-slate-500 py-6 border border-dashed border-slate-700 rounded-lg">
+                        Busque um ativo para listar as opções.<br>Clique em uma opção para enviá-la à Boleta.
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- COLUNA DIREITA: CARTEIRA VIRTUAL (CUSTÓDIA) -->
+            <div class="lg:col-span-7">
+                <div class="card h-full flex flex-col overflow-hidden shadow-sm">
+                    <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <span class="icon-wrapper text-indigo-500" v-html="getIcon('briefcase', 18)"></span>
+                            Minha Custódia Virtual
+                        </h3>
+                        <span class="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-full">
+                            {{ portfolio.positions.length }} Posições Abertas
+                        </span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scrollbar p-0">
+                        <div v-if="portfolio.positions.length === 0" class="text-center text-sm font-bold text-slate-400 py-20 flex flex-col items-center">
+                            <span class="icon-wrapper text-slate-300 mb-3" v-html="getIcon('inbox', 48)"></span>
+                            Sua carteira está vazia.<br>
+                            <span class="text-xs font-normal mt-1">Execute ordens na boleta ao lado para começar a treinar.</span>
+                        </div>
+
+                        <table v-else class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-white text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200 sticky top-0">
+                                    <th class="p-4 font-bold">Ativo</th>
+                                    <th class="p-4 font-bold text-center">Posição</th>
+                                    <th class="p-4 font-bold text-right">Quantidade</th>
+                                    <th class="p-4 font-bold text-right">Preço Médio</th>
+                                    <th class="p-4 font-bold text-right">Financeiro (PM)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="pos in portfolio.positions" :key="pos.ticker" class="border-b border-slate-50 hover:bg-slate-50 transition">
+                                    <td class="p-4">
+                                        <p class="font-black text-slate-800 text-sm">{{ pos.ticker }}</p>
+                                        <p class="text-[10px] font-bold text-slate-400 uppercase">{{ pos.type }}</p>
+                                    </td>
+                                    <td class="p-4 text-center">
+                                        <span v-if="pos.quantity > 0" class="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded uppercase">Comprado</span>
+                                        <span v-else class="px-2 py-1 bg-rose-100 text-rose-700 text-[10px] font-black rounded uppercase">Vendido (Short)</span>
+                                    </td>
+                                    <td class="p-4 font-bold text-right text-slate-700">
+                                        {{ Math.abs(pos.quantity).toLocaleString('pt-BR') }}
+                                    </td>
+                                    <td class="p-4 font-bold text-right text-slate-700">
+                                        R$ {{ formatarMoeda(pos.average_price) }}
+                                    </td>
+                                    <td class="p-4 font-black text-right" :class="pos.quantity > 0 ? 'text-indigo-600' : 'text-rose-600'">
+                                        R$ {{ formatarMoeda(Math.abs(pos.quantity) * pos.average_price) }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                // Estado da Conta
+                const portfolio = reactive({ balance: 0, positions: [] });
+                
+                // Estado da Boleta
+                const boleta = reactive({ ticker: '', type: 'CALL', quantity: 100, price: 0.01 });
+                const mensagem = reactive({ texto: '', tipo: 'sucesso' });
+                
+                // Estado da Busca de Grade
+                const buscaTicker = ref('');
+                const loadingGrade = ref(false);
+                const gradeFiltro = ref('CALL');
+                const gradeOpcoes = ref([]);
+
+                const getIcon = (name, size = 18) => {
+                    try {
+                        const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        if (window.lucide && window.lucide.icons[iconName]) {
+                            const svgElement = window.lucide.createElement(window.lucide.icons[iconName]);
+                            svgElement.setAttribute('width', size); svgElement.setAttribute('height', size); svgElement.setAttribute('stroke-width', 2.5);
+                            return svgElement.outerHTML;
+                        } return "";
+                    } catch(e) { return ""; }
+                };
+
+                const formatarMoeda = (valor) => Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+                const mostrarMensagem = (texto, tipo = 'sucesso') => {
+                    mensagem.texto = texto;
+                    mensagem.tipo = tipo;
+                    setTimeout(() => mensagem.texto = '', 6000);
+                };
+
+                // --- COMUNICAÇÃO COM O BACKEND (CORRETORA VIRTUAL) ---
+                
+                const carregarPortfolio = async () => {
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/paper-trading/portfolio');
+                        const data = await res.json();
+                        portfolio.balance = data.balance;
+                        portfolio.positions = data.positions;
+                    } catch (e) {
+                        mostrarMensagem("Erro ao conectar com a corretora virtual.", 'erro');
+                    }
+                };
+
+                const enviarOrdem = async (acao) => {
+                    if (!boleta.ticker || boleta.quantity <= 0 || boleta.price <= 0) {
+                        mostrarMensagem("Preencha todos os campos da boleta corretamente.", 'erro'); return;
+                    }
+
+                    const qtdCalculada = acao === 'compra' ? Number(boleta.quantity) : -Math.abs(Number(boleta.quantity));
+
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/paper-trading/trade', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                ticker: boleta.ticker.toUpperCase(),
+                                type: boleta.type,
+                                quantity: qtdCalculada,
+                                price: Number(boleta.price)
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (!res.ok) throw new Error(data.error);
+
+                        mostrarMensagem(data.message, 'sucesso');
+                        carregarPortfolio();
+                    } catch (e) {
+                        mostrarMensagem(e.message, 'erro');
+                    }
+                };
+
+                const resetarConta = async () => {
+                    if(!confirm("Atenção: Isso vai apagar TODAS as suas posições virtuais e reiniciar seu saldo para R$ 100.000,00. Deseja continuar?")) return;
+                    
+                    try {
+                        const res = await fetch('http://localhost:3002/api/brapi/paper-trading/reset', { method: 'POST' });
+                        const data = await res.json();
+                        mostrarMensagem(data.message, 'sucesso');
+                        carregarPortfolio();
+                    } catch (e) { mostrarMensagem("Erro ao resetar conta.", 'erro'); }
+                };
+
+                // --- INTEGRAÇÃO COM A GRADE DE OPÇÕES E FALLBACK ---
+
+                // Função que gera a grade fictícia quando o mercado real está offline (Sábado/Domingo)
+                const gerarGradeFicticia = (ativoObjeto) => {
+                    const spotFicticio = 36.50; // Preço base fictício aproximado (Ex: PETR4)
+                    const prefixo = ativoObjeto.substring(0, 4);
+                    let arrayFicticio = [];
+
+                    for (let i = -5; i <= 5; i++) {
+                        const strike = spotFicticio + (i * 0.5);
+                        
+                        // Gerando CALL
+                        let precoCall = Math.max(0.01, (spotFicticio - strike) + 1.2 + (Math.random() * 0.4));
+                        arrayFicticio.push({
+                            ticker: `${prefixo}F${(strike * 10).toFixed(0).padStart(3, '0')}`,
+                            strike: strike,
+                            lastPrice: precoCall,
+                            type: 'CALL'
+                        });
+
+                        // Gerando PUT
+                        let precoPut = Math.max(0.01, (strike - spotFicticio) + 1.2 + (Math.random() * 0.4));
+                        arrayFicticio.push({
+                            ticker: `${prefixo}R${(strike * 10).toFixed(0).padStart(3, '0')}`,
+                            strike: strike,
+                            lastPrice: precoPut,
+                            type: 'PUT'
+                        });
+                    }
+                    return arrayFicticio;
+                };
+
+                const buscarGrade = async () => {
+                    if(!buscaTicker.value.trim()) return;
+                    loadingGrade.value = true;
+                    gradeOpcoes.value = [];
+                    const ticker = buscaTicker.value.trim().toUpperCase();
+                    
+                    try {
+                        const res = await fetch(`http://localhost:3002/api/brapi/options-chain/${ticker}`);
+                        const data = await res.json();
+                        if(!res.ok) throw new Error(data.error);
+
+                        gradeOpcoes.value = [...data.calls, ...data.puts];
+                    } catch(e) { 
+                        // MÁGICA AQUI: O Fallback de Simulação entra em ação!
+                        console.warn(`[Modo Simulação] API B3 Offline para ${ticker}. Gerando grade de laboratório.`);
+                        
+                        mostrarMensagem(`Mercado fechado ou sem liquidez. MODO DE TREINAMENTO OFFLINE ativado para ${ticker}.`, 'aviso');
+                        
+                        gradeOpcoes.value = gerarGradeFicticia(ticker);
+                    } finally { 
+                        loadingGrade.value = false; 
+                    }
+                };
+
+                const opcoesFiltradas = computed(() => {
+                    return gradeOpcoes.value
+                        .filter(op => op.type === gradeFiltro.value)
+                        .sort((a, b) => a.strike - b.strike);
+                });
+
+                const preencherBoleta = (opcao) => {
+                    boleta.ticker = opcao.ticker;
+                    boleta.type = opcao.type;
+                    boleta.price = opcao.lastPrice || 0.01;
+                    boleta.quantity = 100;
+                };
+
+                onMounted(() => {
+                    carregarPortfolio();
+                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
+                });
+
+                return { 
+                    portfolio, boleta, mensagem, 
+                    buscaTicker, loadingGrade, gradeFiltro, gradeOpcoes, opcoesFiltradas,
+                    getIcon, formatarMoeda, carregarPortfolio, enviarOrdem, resetarConta, buscarGrade, preencherBoleta
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

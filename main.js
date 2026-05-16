@@ -20,7 +20,7 @@ function createWindow() {
     });
 
     mainWindow.setMenuBarVisibility(false);
-    //mainWindow.webContents.openDevTools(); 
+    mainWindow.webContents.openDevTools(); 
     mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
     // Quando o HTML estiver pronto, maximiza e exibe suavemente
