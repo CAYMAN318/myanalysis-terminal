@@ -20,17 +20,18 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .table-row-hover:hover { background-color: #f1f5f9; cursor: pointer; }
         
-        /* Cores específicas da Boleta */
         .btn-comprar { background-color: #10b981; color: white; }
         .btn-comprar:hover { background-color: #059669; }
         .btn-vender { background-color: #f43f5e; color: white; }
         .btn-vender:hover { background-color: #e11d48; }
+        
+        /* Destaque para Spread */
+        .spread-box { background: #fffbeb; border: 1px dashed #f59e0b; }
     </style>
 </head>
 <body class="p-8">
     <div id="app" class="w-full">
         
-        <!-- HEADER E SALDO -->
         <header class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
             <div>
                 <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
@@ -40,26 +41,33 @@
                 <p class="text-slate-500 mt-2 font-medium">Treinamento prático de execução, custódia e risco (Paper Trading).</p>
             </div>
 
-            <!-- Painel de Conta Virtual -->
-            <div class="bg-slate-900 rounded-2xl p-4 text-white flex items-center gap-6 shadow-lg border border-slate-800">
-                <div>
-                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Poder de Compra (Caixa)</p>
-                    <p class="text-2xl font-black" :class="portfolio.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                        R$ {{ formatarMoeda(portfolio.balance) }}
-                    </p>
+            <!-- NOVO: GESTOR DE DIFICULDADE (GAMIFICAÇÃO) -->
+            <div class="flex flex-col gap-3">
+                <div class="flex bg-slate-200 rounded-lg p-1">
+                    <button @click="mudarNivel(1)" :class="['px-4 py-1.5 text-xs font-bold rounded-md transition-all', nivelSimulador === 1 ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700']">
+                        Nível 1: Aprendiz (Sem Spread)
+                    </button>
+                    <button @click="mudarNivel(2)" :class="['px-4 py-1.5 text-xs font-bold rounded-md transition-all', nivelSimulador === 2 ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700']">
+                        Nível 2: Mercado Real (C/ Spread)
+                    </button>
                 </div>
-                <div class="border-l border-slate-700 pl-6 flex flex-col gap-2">
-                    <button @click="carregarPortfolio" class="text-xs font-bold text-slate-300 hover:text-white flex items-center gap-2 transition">
-                        <span class="icon-wrapper" v-html="getIcon('refresh-cw', 14)"></span> Atualizar
-                    </button>
-                    <button @click="resetarConta" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-2 transition">
-                        <span class="icon-wrapper" v-html="getIcon('alert-triangle', 12)"></span> Resetar Conta
-                    </button>
+
+                <div class="bg-slate-900 rounded-xl p-3 text-white flex items-center gap-6 shadow-lg border border-slate-800">
+                    <div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Poder de Compra</p>
+                        <p class="text-xl font-black" :class="portfolio.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                            R$ {{ formatarMoeda(portfolio.balance) }}
+                        </p>
+                    </div>
+                    <div class="border-l border-slate-700 pl-4 flex flex-col gap-2">
+                        <button @click="resetarConta" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-2 transition">
+                            <span class="icon-wrapper" v-html="getIcon('alert-triangle', 12)"></span> Resetar Conta
+                        </button>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <!-- ALERTA DE ERRO/SUCESSO/AVISO -->
         <div v-if="mensagem.texto" :class="['mb-6 p-4 rounded-xl font-bold flex items-center justify-between shadow-sm transition-all', 
             mensagem.tipo === 'erro' ? 'bg-rose-50 border border-rose-200 text-rose-700' : 
             mensagem.tipo === 'aviso' ? 'bg-amber-50 border border-amber-200 text-amber-700' : 
@@ -72,15 +80,15 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            <!-- COLUNA ESQUERDA: GRADE DE OPÇÕES E BOLETA -->
             <div class="lg:col-span-5 space-y-6">
                 
-                <!-- BOLETA DE ORDEM -->
+                <!-- BOLETA INTELIGENTE (GAMIFICADA) -->
                 <div class="card p-6 border-t-4 border-t-emerald-500 shadow-md">
-                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-                        <span class="icon-wrapper text-emerald-500" v-html="getIcon('terminal', 18)"></span>
-                        Boleta de Ordem
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="icon-wrapper text-emerald-500" v-html="getIcon('terminal', 18)"></span> Boleta de Execução
+                        </div>
+                        <span v-if="nivelSimulador === 2" class="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">Spread Ativado</span>
                     </h3>
 
                     <div class="grid grid-cols-2 gap-4 mb-4">
@@ -89,43 +97,51 @@
                             <input type="text" v-model="boleta.ticker" class="uppercase" placeholder="Ex: PETR4">
                         </div>
                         <div class="input-group">
-                            <label>Tipo</label>
-                            <select v-model="boleta.type">
-                                <option value="CALL">Opção de Compra (CALL)</option>
-                                <option value="PUT">Opção de Venda (PUT)</option>
-                                <option value="STOCK">Ação (SPOT)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 mb-6">
-                        <div class="input-group">
                             <label>Quantidade</label>
                             <input type="number" step="100" v-model="boleta.quantity" placeholder="Ex: 100">
                         </div>
-                        <div class="input-group">
-                            <label>Preço Unitário (R$)</label>
-                            <input type="number" step="0.01" v-model="boleta.price" placeholder="Ex: 0.50">
-                        </div>
                     </div>
 
-                    <div class="bg-slate-50 p-3 rounded-lg flex justify-between items-center mb-6 border border-slate-200">
-                        <span class="text-xs font-bold text-slate-500 uppercase">Volume Financeiro:</span>
-                        <span class="text-lg font-black text-slate-800">R$ {{ formatarMoeda(boleta.quantity * boleta.price) }}</span>
+                    <!-- Módulo de Preços (Bid/Ask) -->
+                    <div v-if="nivelSimulador === 2" class="grid grid-cols-2 gap-4 mb-2">
+                        <div class="bg-rose-50 border border-rose-100 p-3 rounded-lg">
+                            <p class="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-1">Preço Venda (Bid)</p>
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg font-black text-rose-700">R$ {{ formatarMoeda(boleta.bid) }}</span>
+                                <span class="text-[10px] text-rose-400">Você recebe</span>
+                            </div>
+                        </div>
+                        <div class="bg-emerald-50 border border-emerald-100 p-3 rounded-lg">
+                            <p class="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Preço Compra (Ask)</p>
+                            <div class="flex items-center justify-between">
+                                <span class="text-lg font-black text-emerald-700">R$ {{ formatarMoeda(boleta.ask) }}</span>
+                                <span class="text-[10px] text-emerald-500">Você paga</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div v-else class="input-group mb-4">
+                        <label>Preço Unitário Fixo (Nível 1 - Sem Spread)</label>
+                        <input type="number" step="0.01" v-model="boleta.price_base">
+                    </div>
+
+                    <div v-if="nivelSimulador === 2 && boleta.ask > 0" class="spread-box p-2 rounded text-[10px] text-amber-800 font-bold mb-4 flex items-center justify-between">
+                        <span>Fricção da Operação (Spread):</span>
+                        <span class="text-amber-600">R$ {{ formatarMoeda((boleta.ask - boleta.bid) * boleta.quantity) }} custo oculto</span>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <button @click="enviarOrdem('compra')" class="btn-comprar font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm">
-                            <span class="icon-wrapper" v-html="getIcon('arrow-down-to-line', 18)"></span> COMPRAR
+                        <button @click="enviarOrdem('compra')" class="btn-comprar font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm flex-col leading-tight">
+                            <span class="flex items-center gap-2"><span class="icon-wrapper" v-html="getIcon('arrow-down-to-line', 16)"></span> COMPRAR</span>
+                            <span v-if="nivelSimulador === 2" class="text-[10px] font-normal opacity-90">a R$ {{ formatarMoeda(boleta.ask) }}</span>
                         </button>
-                        <button @click="enviarOrdem('venda')" class="btn-vender font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm">
-                            <span class="icon-wrapper" v-html="getIcon('arrow-up-from-line', 18)"></span> VENDER
+                        <button @click="enviarOrdem('venda')" class="btn-vender font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-sm flex-col leading-tight">
+                            <span class="flex items-center gap-2"><span class="icon-wrapper" v-html="getIcon('arrow-up-from-line', 16)"></span> VENDER</span>
+                            <span v-if="nivelSimulador === 2" class="text-[10px] font-normal opacity-90">a R$ {{ formatarMoeda(boleta.bid) }}</span>
                         </button>
                     </div>
-                    <p class="text-[10px] text-center text-slate-400 font-bold mt-3">* Vender opções que você não possui cria uma posição vendida a descoberto (Short).</p>
                 </div>
 
-                <!-- BUSCAR GRADE PARA PREENCHER BOLETA -->
                 <div class="card p-6 bg-slate-800 text-white border-slate-800">
                     <h3 class="text-sm font-black text-slate-300 uppercase tracking-wider mb-4 flex items-center justify-between border-b border-slate-700 pb-2">
                         <div class="flex items-center gap-2">
@@ -138,7 +154,7 @@
                     </h3>
 
                     <div class="flex gap-2 mb-4">
-                        <input type="text" v-model="buscaTicker" @keyup.enter="buscarGrade" class="flex-1 bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 font-bold uppercase text-sm placeholder:normal-case placeholder:text-slate-400 placeholder:font-normal" placeholder="Ativo objeto (ex: VALE3)">
+                        <input type="text" v-model="buscaTicker" @keyup.enter="buscarGrade" class="flex-1 bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 font-bold uppercase text-sm placeholder:normal-case placeholder:text-slate-400" placeholder="Ativo objeto (ex: VALE3)">
                         <button @click="buscarGrade" class="bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg px-4 font-bold transition flex items-center justify-center">
                             <span v-if="loadingGrade" class="animate-spin icon-wrapper" v-html="getIcon('loader-2', 16)"></span>
                             <span v-else class="icon-wrapper" v-html="getIcon('arrow-right', 16)"></span>
@@ -148,60 +164,58 @@
                     <div v-if="gradeOpcoes.length > 0" class="max-h-64 overflow-y-auto custom-scrollbar bg-slate-900 rounded-lg border border-slate-700">
                         <table class="w-full text-left text-xs border-collapse">
                             <thead class="sticky top-0 bg-slate-800 shadow-sm">
-                                <tr class="text-slate-400 uppercase tracking-wider">
+                                <tr class="text-slate-400 uppercase tracking-wider text-[9px]">
                                     <th class="p-2 font-bold pl-3">Ticker</th>
-                                    <th class="p-2 font-bold text-right">Strike</th>
-                                    <th class="p-2 font-bold text-right pr-3">Prêmio</th>
+                                    <th class="p-2 font-bold text-center">Strike</th>
+                                    <th v-if="nivelSimulador === 1" class="p-2 font-bold text-right pr-3">Prêmio Fixo</th>
+                                    <template v-else>
+                                        <th class="p-2 font-bold text-right text-rose-400">Bid (Venda)</th>
+                                        <th class="p-2 font-bold text-right text-emerald-400 pr-3">Ask (Compra)</th>
+                                    </template>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-for="op in opcoesFiltradas" :key="op.ticker" @click="preencherBoleta(op)" class="border-b border-slate-800 hover:bg-slate-700 cursor-pointer transition">
                                     <td class="p-2 pl-3 font-bold text-slate-200">{{ op.ticker }}</td>
-                                    <td class="p-2 text-right text-slate-300 font-mono">R$ {{ formatarMoeda(op.strike) }}</td>
-                                    <td class="p-2 text-right pr-3 font-bold" :class="op.type === 'CALL' ? 'text-emerald-400' : 'text-rose-400'">R$ {{ formatarMoeda(op.lastPrice) }}</td>
+                                    <td class="p-2 text-center text-slate-300 font-mono">{{ formatarMoeda(op.strike) }}</td>
+                                    
+                                    <td v-if="nivelSimulador === 1" class="p-2 text-right pr-3 font-bold text-indigo-400">{{ formatarMoeda(op.lastPrice) }}</td>
+                                    <template v-else>
+                                        <td class="p-2 text-right font-bold text-rose-400/80">{{ formatarMoeda(op.lastPrice * 0.96) }}</td>
+                                        <td class="p-2 text-right font-bold text-emerald-400 pr-3">{{ formatarMoeda(op.lastPrice * 1.04) }}</td>
+                                    </template>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
-                    <div v-else-if="!loadingGrade" class="text-center text-xs text-slate-500 py-6 border border-dashed border-slate-700 rounded-lg">
-                        Busque um ativo para listar as opções.<br>Clique em uma opção para enviá-la à Boleta.
-                    </div>
                 </div>
-
             </div>
 
-            <!-- COLUNA DIREITA: CARTEIRA VIRTUAL (CUSTÓDIA) -->
             <div class="lg:col-span-7">
                 <div class="card h-full flex flex-col overflow-hidden shadow-sm">
                     <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                         <h3 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                            <span class="icon-wrapper text-indigo-500" v-html="getIcon('briefcase', 18)"></span>
-                            Minha Custódia Virtual
+                            <span class="icon-wrapper text-indigo-500" v-html="getIcon('briefcase', 18)"></span> Minha Custódia Virtual
                         </h3>
-                        <span class="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-full">
-                            {{ portfolio.positions.length }} Posições Abertas
-                        </span>
+                        <span class="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-full">{{ portfolio.positions.length }} Posições Abertas</span>
                     </div>
 
                     <div class="flex-1 overflow-y-auto custom-scrollbar p-0">
                         <div v-if="portfolio.positions.length === 0" class="text-center text-sm font-bold text-slate-400 py-20 flex flex-col items-center">
-                            <span class="icon-wrapper text-slate-300 mb-3" v-html="getIcon('inbox', 48)"></span>
-                            Sua carteira está vazia.<br>
-                            <span class="text-xs font-normal mt-1">Execute ordens na boleta ao lado para começar a treinar.</span>
+                            <span class="icon-wrapper text-slate-300 mb-3" v-html="getIcon('inbox', 48)"></span> Sua carteira está vazia.<br>
                         </div>
-
                         <table v-else class="w-full text-left border-collapse">
                             <thead>
                                 <tr class="bg-white text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200 sticky top-0">
                                     <th class="p-4 font-bold">Ativo</th>
                                     <th class="p-4 font-bold text-center">Posição</th>
-                                    <th class="p-4 font-bold text-right">Quantidade</th>
-                                    <th class="p-4 font-bold text-right">Preço Médio</th>
+                                    <th class="p-4 font-bold text-right">Qtd.</th>
+                                    <th class="p-4 font-bold text-right">Preço Médio (PM)</th>
                                     <th class="p-4 font-bold text-right">Financeiro (PM)</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="pos in portfolio.positions" :key="pos.ticker" class="border-b border-slate-50 hover:bg-slate-50 transition">
+                                <tr v-for="pos in portfolio.positions" :key="pos.ticker" class="border-b border-slate-50 hover:bg-slate-50 transition" @click="jogarPraBoleta(pos.ticker, pos.type)" style="cursor: pointer;">
                                     <td class="p-4">
                                         <p class="font-black text-slate-800 text-sm">{{ pos.ticker }}</p>
                                         <p class="text-[10px] font-bold text-slate-400 uppercase">{{ pos.type }}</p>
@@ -210,38 +224,29 @@
                                         <span v-if="pos.quantity > 0" class="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded uppercase">Comprado</span>
                                         <span v-else class="px-2 py-1 bg-rose-100 text-rose-700 text-[10px] font-black rounded uppercase">Vendido (Short)</span>
                                     </td>
-                                    <td class="p-4 font-bold text-right text-slate-700">
-                                        {{ Math.abs(pos.quantity).toLocaleString('pt-BR') }}
-                                    </td>
-                                    <td class="p-4 font-bold text-right text-slate-700">
-                                        R$ {{ formatarMoeda(pos.average_price) }}
-                                    </td>
-                                    <td class="p-4 font-black text-right" :class="pos.quantity > 0 ? 'text-indigo-600' : 'text-rose-600'">
-                                        R$ {{ formatarMoeda(Math.abs(pos.quantity) * pos.average_price) }}
-                                    </td>
+                                    <td class="p-4 font-bold text-right text-slate-700">{{ Math.abs(pos.quantity).toLocaleString('pt-BR') }}</td>
+                                    <td class="p-4 font-bold text-right text-slate-700">R$ {{ formatarMoeda(pos.average_price) }}</td>
+                                    <td class="p-4 font-black text-right" :class="pos.quantity > 0 ? 'text-indigo-600' : 'text-rose-600'">R$ {{ formatarMoeda(Math.abs(pos.quantity) * pos.average_price) }}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
 
     <script>
-        const { createApp, ref, reactive, computed, onMounted } = Vue;
+        const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
 
         createApp({
             setup() {
-                // Estado da Conta
                 const portfolio = reactive({ balance: 0, positions: [] });
-                
-                // Estado da Boleta
-                const boleta = reactive({ ticker: '', type: 'CALL', quantity: 100, price: 0.01 });
+                // Boleta evoluída para suportar bid/ask separados ou preço fixo
+                const boleta = reactive({ ticker: '', type: 'CALL', quantity: 100, price_base: 0.01, bid: 0.01, ask: 0.01 });
                 const mensagem = reactive({ texto: '', tipo: 'sucesso' });
+                const nivelSimulador = ref(1); // 1 = Aprendiz, 2 = Mercado Real
                 
-                // Estado da Busca de Grade
                 const buscaTicker = ref('');
                 const loadingGrade = ref(false);
                 const gradeFiltro = ref('CALL');
@@ -259,144 +264,133 @@
                 };
 
                 const formatarMoeda = (valor) => Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const mostrarMensagem = (texto, tipo = 'sucesso') => { mensagem.texto = texto; mensagem.tipo = tipo; setTimeout(() => mensagem.texto = '', 6000); };
 
-                const mostrarMensagem = (texto, tipo = 'sucesso') => {
-                    mensagem.texto = texto;
-                    mensagem.tipo = tipo;
-                    setTimeout(() => mensagem.texto = '', 6000);
-                };
-
-                // --- COMUNICAÇÃO COM O BACKEND (CORRETORA VIRTUAL) ---
-                
                 const carregarPortfolio = async () => {
                     try {
                         const res = await fetch('http://localhost:3002/api/brapi/paper-trading/portfolio');
                         const data = await res.json();
-                        portfolio.balance = data.balance;
-                        portfolio.positions = data.positions;
-                    } catch (e) {
-                        mostrarMensagem("Erro ao conectar com a corretora virtual.", 'erro');
+                        portfolio.balance = data.balance; portfolio.positions = data.positions;
+                    } catch (e) {}
+                };
+
+                const mudarNivel = (nivel) => {
+                    nivelSimulador.value = nivel;
+                    // Recalcula a boleta se mudar de nível
+                    atualizarBidAskBoleta();
+                    mostrarMensagem(`Dificuldade alterada para Nível ${nivel}.`, 'aviso');
+                };
+
+                const atualizarBidAskBoleta = () => {
+                    if (nivelSimulador.value === 1) {
+                        boleta.bid = boleta.price_base;
+                        boleta.ask = boleta.price_base;
+                    } else {
+                        // Aplica um spread dolorido simulado de +/- 4% no preço base (Aproximando liquidez de B3)
+                        boleta.bid = boleta.price_base * 0.96;
+                        boleta.ask = boleta.price_base * 1.04;
                     }
                 };
 
+                // Sempre que o preço base mudar na boleta manualmente, ajusta o Bid/Ask
+                watch(() => boleta.price_base, () => { atualizarBidAskBoleta(); });
+
                 const enviarOrdem = async (acao) => {
-                    if (!boleta.ticker || boleta.quantity <= 0 || boleta.price <= 0) {
-                        mostrarMensagem("Preencha todos os campos da boleta corretamente.", 'erro'); return;
+                    if (!boleta.ticker || boleta.quantity <= 0) { mostrarMensagem("Preencha a boleta corretamente.", 'erro'); return; }
+                    
+                    // Decisão de preço baseada no Nível e Ação (Gamificação Central)
+                    let precoExecucao = boleta.price_base;
+                    if (nivelSimulador.value === 2) {
+                        precoExecucao = acao === 'compra' ? boleta.ask : boleta.bid;
                     }
+
+                    if (precoExecucao <= 0) { mostrarMensagem("Preço inválido.", 'erro'); return; }
 
                     const qtdCalculada = acao === 'compra' ? Number(boleta.quantity) : -Math.abs(Number(boleta.quantity));
 
                     try {
                         const res = await fetch('http://localhost:3002/api/brapi/paper-trading/trade', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                ticker: boleta.ticker.toUpperCase(),
-                                type: boleta.type,
-                                quantity: qtdCalculada,
-                                price: Number(boleta.price)
-                            })
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ticker: boleta.ticker.toUpperCase(), type: boleta.type, quantity: qtdCalculada, price: Number(precoExecucao) })
                         });
                         const data = await res.json();
-
                         if (!res.ok) throw new Error(data.error);
-
-                        mostrarMensagem(data.message, 'sucesso');
+                        mostrarMensagem(`Ordem executada a R$ ${formatarMoeda(precoExecucao)}`, 'sucesso'); 
                         carregarPortfolio();
-                    } catch (e) {
-                        mostrarMensagem(e.message, 'erro');
-                    }
+                    } catch (e) { mostrarMensagem(e.message, 'erro'); }
                 };
 
                 const resetarConta = async () => {
-                    if(!confirm("Atenção: Isso vai apagar TODAS as suas posições virtuais e reiniciar seu saldo para R$ 100.000,00. Deseja continuar?")) return;
-                    
+                    if(!confirm("Atenção: Isso vai apagar TODAS as posições e reiniciar a conta. Continuar?")) return;
                     try {
                         const res = await fetch('http://localhost:3002/api/brapi/paper-trading/reset', { method: 'POST' });
-                        const data = await res.json();
-                        mostrarMensagem(data.message, 'sucesso');
-                        carregarPortfolio();
-                    } catch (e) { mostrarMensagem("Erro ao resetar conta.", 'erro'); }
+                        const data = await res.json(); mostrarMensagem(data.message, 'sucesso'); carregarPortfolio();
+                    } catch (e) {}
                 };
 
-                // --- INTEGRAÇÃO COM A GRADE DE OPÇÕES E FALLBACK ---
-
-                // Função que gera a grade fictícia quando o mercado real está offline (Sábado/Domingo)
-                const gerarGradeFicticia = (ativoObjeto) => {
-                    const spotFicticio = 36.50; // Preço base fictício aproximado (Ex: PETR4)
+                // MOTOR SINCRO-ATIVO
+                const gerarGradeInteligente = (ativoObjeto, spotReal) => {
                     const prefixo = ativoObjeto.substring(0, 4);
                     let arrayFicticio = [];
+                    const baseStrike = Math.round(spotReal * 2) / 2; 
 
                     for (let i = -5; i <= 5; i++) {
-                        const strike = spotFicticio + (i * 0.5);
-                        
-                        // Gerando CALL
-                        let precoCall = Math.max(0.01, (spotFicticio - strike) + 1.2 + (Math.random() * 0.4));
-                        arrayFicticio.push({
-                            ticker: `${prefixo}F${(strike * 10).toFixed(0).padStart(3, '0')}`,
-                            strike: strike,
-                            lastPrice: precoCall,
-                            type: 'CALL'
-                        });
+                        const strike = baseStrike + (i * 0.5);
+                        let extrinseco = (spotReal * 0.04) * Math.exp(-Math.abs(i) * 0.3); 
+                        let precoCall = Math.max(0.01, Math.max(0, spotReal - strike) + extrinseco + (Math.random() * 0.05));
+                        let precoPut = Math.max(0.01, Math.max(0, strike - spotReal) + extrinseco + (Math.random() * 0.05));
 
-                        // Gerando PUT
-                        let precoPut = Math.max(0.01, (strike - spotFicticio) + 1.2 + (Math.random() * 0.4));
-                        arrayFicticio.push({
-                            ticker: `${prefixo}R${(strike * 10).toFixed(0).padStart(3, '0')}`,
-                            strike: strike,
-                            lastPrice: precoPut,
-                            type: 'PUT'
-                        });
+                        arrayFicticio.push({ ticker: `${prefixo}F${(strike * 10).toFixed(0).padStart(3, '0')}`, strike: strike, lastPrice: precoCall, type: 'CALL' });
+                        arrayFicticio.push({ ticker: `${prefixo}R${(strike * 10).toFixed(0).padStart(3, '0')}`, strike: strike, lastPrice: precoPut, type: 'PUT' });
                     }
                     return arrayFicticio;
                 };
 
                 const buscarGrade = async () => {
                     if(!buscaTicker.value.trim()) return;
-                    loadingGrade.value = true;
-                    gradeOpcoes.value = [];
+                    loadingGrade.value = true; gradeOpcoes.value = [];
                     const ticker = buscaTicker.value.trim().toUpperCase();
                     
                     try {
                         const res = await fetch(`http://localhost:3002/api/brapi/options-chain/${ticker}`);
                         const data = await res.json();
                         if(!res.ok) throw new Error(data.error);
-
                         gradeOpcoes.value = [...data.calls, ...data.puts];
                     } catch(e) { 
-                        // MÁGICA AQUI: O Fallback de Simulação entra em ação!
-                        console.warn(`[Modo Simulação] API B3 Offline para ${ticker}. Gerando grade de laboratório.`);
-                        
-                        mostrarMensagem(`Mercado fechado ou sem liquidez. MODO DE TREINAMENTO OFFLINE ativado para ${ticker}.`, 'aviso');
-                        
-                        gradeOpcoes.value = gerarGradeFicticia(ticker);
-                    } finally { 
-                        loadingGrade.value = false; 
-                    }
+                        let spotReal = 36.50; 
+                        try {
+                            const resCotacao = await fetch(`http://localhost:3002/api/brapi/quote/${ticker}`);
+                            const dataCotacao = await resCotacao.json();
+                            if(dataCotacao && dataCotacao.regularMarketPrice) spotReal = dataCotacao.regularMarketPrice;
+                        } catch(errQuote) { }
+
+                        mostrarMensagem(`API Offline. MODO SINCRO-ATIVO gerando opções via Spot Real (R$ ${formatarMoeda(spotReal)}).`, 'aviso');
+                        gradeOpcoes.value = gerarGradeInteligente(ticker, spotReal);
+                    } finally { loadingGrade.value = false; }
                 };
 
-                const opcoesFiltradas = computed(() => {
-                    return gradeOpcoes.value
-                        .filter(op => op.type === gradeFiltro.value)
-                        .sort((a, b) => a.strike - b.strike);
-                });
-
-                const preencherBoleta = (opcao) => {
-                    boleta.ticker = opcao.ticker;
-                    boleta.type = opcao.type;
-                    boleta.price = opcao.lastPrice || 0.01;
-                    boleta.quantity = 100;
+                const opcoesFiltradas = computed(() => gradeOpcoes.value.filter(op => op.type === gradeFiltro.value).sort((a, b) => a.strike - b.strike));
+                
+                const preencherBoleta = (opcao) => { 
+                    boleta.ticker = opcao.ticker; 
+                    boleta.type = opcao.type; 
+                    boleta.price_base = opcao.lastPrice || 0.01; 
+                    boleta.quantity = 100; 
+                    atualizarBidAskBoleta();
                 };
 
-                onMounted(() => {
-                    carregarPortfolio();
-                    setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150);
-                });
+                const jogarPraBoleta = (ticker, type) => {
+                    boleta.ticker = ticker;
+                    boleta.type = type;
+                    // Se clicar na carteira, busca o ativo no radar pra atualizar os preços
+                    buscaTicker.value = ticker.substring(0, 4) + '4'; // Chute aproximado do ativo objeto
+                };
+
+                onMounted(() => { carregarPortfolio(); setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 150); });
 
                 return { 
-                    portfolio, boleta, mensagem, 
-                    buscaTicker, loadingGrade, gradeFiltro, gradeOpcoes, opcoesFiltradas,
-                    getIcon, formatarMoeda, carregarPortfolio, enviarOrdem, resetarConta, buscarGrade, preencherBoleta
+                    portfolio, boleta, mensagem, buscaTicker, loadingGrade, gradeFiltro, gradeOpcoes, opcoesFiltradas, nivelSimulador,
+                    getIcon, formatarMoeda, carregarPortfolio, enviarOrdem, resetarConta, buscarGrade, preencherBoleta, mudarNivel, jogarPraBoleta
                 };
             }
         }).mount('#app');

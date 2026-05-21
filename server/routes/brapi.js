@@ -11,7 +11,7 @@ const getBrapiToken = () => {
 };
 
 // ============================================================================
-// GESTOR DE SESSÃO YAHOO (COOKIES E CRUMB ANTI-BLOQUEIO)
+// GESTOR DE SESSÃO YAHOO (COOKIES E CRUMB ANTI-BLOQUEIO) - CORRIGIDO
 // ============================================================================
 let _yahooCookie = '';
 let _yahooCrumb = '';
@@ -22,240 +22,261 @@ const getYahooSession = async () => {
     try {
         const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
         
+        // CORREÇÃO: Usar um endpoint leve do Yahoo para evitar o "Header overflow"
         const cookieRes = await axios.get('https://fc.yahoo.com', {
             headers: { 'User-Agent': ua },
             validateStatus: () => true 
         });
+        
         const setCookie = cookieRes.headers['set-cookie'];
         if (setCookie) {
             _yahooCookie = setCookie.map(c => c.split(';')[0]).join('; ');
         }
 
         const crumbRes = await axios.get('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-            headers: { 'User-Agent': ua, 'Cookie': _yahooCookie }
+            headers: { 
+                'User-Agent': ua, 
+                'Cookie': _yahooCookie,
+                'Origin': 'https://finance.yahoo.com',
+                'Referer': 'https://finance.yahoo.com/'
+            },
+            validateStatus: () => true
         });
-        _yahooCrumb = crumbRes.data;
+        
+        if (crumbRes.status === 200 && crumbRes.data) {
+            _yahooCrumb = crumbRes.data;
+        }
         
         return { cookie: _yahooCookie, crumb: _yahooCrumb };
     } catch (e) {
-        console.error("⚠️ [Aviso] Falha ao gerar Crumb do Yahoo:", e.message);
-        return { cookie: '', crumb: '' };
+        console.error("Erro ao obter sessão Yahoo:", e.message);
+        return { cookie: null, crumb: null };
     }
 };
 
-const fetchWithSession = async (url) => {
-    let session = await getYahooSession();
-    const separator = url.includes('?') ? '&' : '?';
-    let finalUrl = `${url}${separator}crumb=${session.crumb}`;
-    
-    try {
-        return await axios.get(finalUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
-                'Cookie': session.cookie,
-                'Accept': 'application/json'
-            }
-        });
-    } catch (e) {
-        if (e.response && e.response.status === 401) {
-            _yahooCookie = ''; _yahooCrumb = '';
-            session = await getYahooSession();
-            finalUrl = `${url}${separator}crumb=${session.crumb}`;
-            return await axios.get(finalUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': session.cookie }
-            });
-        }
-        throw e;
-    }
-};
-
-// Formata o Ticker corretamente para o Yahoo (Ignora índices e moedas)
-const formatTickerForYahoo = (ticker) => {
-    if (ticker.startsWith('^') || ticker.includes('=') || ticker.includes('-USD')) return ticker;
-    return ticker.includes('.SA') ? ticker : `${ticker}.SA`;
-};
-
 // ============================================================================
-// 1. AUTOCOMPLETE: LISTA DE TICKERS EM CACHE
+// ROTA: BUSCA AUTOCOMPLETE (TÉCNICA E FUNDAMENTOS)
 // ============================================================================
-let cachedTickers = [];
 router.get('/available', async (req, res) => {
-    if (cachedTickers.length > 0) return res.json(cachedTickers);
     try {
         const response = await axios.get('https://brapi.dev/api/available');
-        cachedTickers = response.data.stocks;
-        res.json(cachedTickers);
-    } catch (error) { res.json([]); } 
+        res.json(response.data.stocks);
+    } catch (error) { res.status(500).json([]); }
 });
 
 // ============================================================================
-// 2. BUSCAR COTAÇÕES EM LOTE (NOVO MÓDULO DASHBOARD)
-// ============================================================================
-router.get('/batch-quotes', async (req, res) => {
-    try {
-        const symbolsParam = req.query.symbols;
-        if (!symbolsParam) return res.json([]);
-
-        const symbolsArray = symbolsParam.split(',').map(formatTickerForYahoo);
-        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolsArray.join(',')}`;
-        
-        const response = await fetchWithSession(url);
-        const results = response.data?.quoteResponse?.result || [];
-        
-        const mapped = results.map(yf => ({
-            symbol: yf.symbol.replace('.SA', ''),
-            name: yf.shortName || yf.longName || yf.symbol,
-            price: yf.regularMarketPrice,
-            changePercent: yf.regularMarketChangePercent,
-            changeValue: yf.regularMarketChange
-        }));
-
-        res.json(mapped);
-    } catch (error) {
-        console.error(`\n❌ [ERRO BATCH QUOTES]:`, error.message);
-        res.status(500).json({ error: "Erro ao buscar cotações em lote." });
-    }
-});
-
-// ============================================================================
-// 3. BUSCAR COTAÇÃO E FUNDAMENTOS
+// ROTA: COTAÇÃO ÚNICA & FUNDAMENTOS (BRAPI COM FALLBACK YAHOO)
 // ============================================================================
 router.get('/quote/:ticker', async (req, res) => {
+    let ticker = req.params.ticker.toUpperCase();
+    const token = getBrapiToken();
+
+    // 1. TENTATIVA PRIMÁRIA: API BRAPI
+    if (token) {
+        try {
+            // CORREÇÃO: 'dividendsData' removido de modules e adicionado como param '&dividends=true' (Evita Erro 400)
+            const url = `https://brapi.dev/api/quote/${ticker}?modules=summaryProfile,financialData,defaultKeyStatistics,summaryDetail&dividends=true&token=${token}`;
+            const response = await axios.get(url);
+            const data = response.data.results ? response.data.results[0] : response.data;
+            return res.json(data);
+        } catch (error) {
+            console.warn(`[AVISO BRAPI] Falha ao buscar fundamentos de ${ticker} (Status: ${error.response?.status}). Tentando Modo Resgate (Yahoo)...`);
+            // Não quebra, segue em frente para tentar o Yahoo Finance
+        }
+    }
+
+    // 2. MODO RESGATE (FALLBACK YAHOO FINANCE) - Bypassa a Brapi se der erro ou faltar Token
     try {
-        const { ticker } = req.params;
-        const tickerSA = formatTickerForYahoo(ticker);
-        const token = getBrapiToken();
+        console.log(`🔎 [FUNDAMENTOS] Acionando motor do Yahoo Finance para: ${ticker}`);
+        const yTicker = (!ticker.includes('.') && !['^BVSP', '^GSPC', 'BTC-USD', 'BRL=X'].includes(ticker)) ? ticker + '.SA' : ticker;
+        const session = await getYahooSession();
+        const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-        const urlFund = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${tickerSA}?modules=summaryProfile,defaultKeyStatistics,financialData,price,summaryDetail`;
-        const urlDiv = `https://query1.finance.yahoo.com/v8/finance/chart/${tickerSA}?interval=1mo&range=5y&events=div`;
-        const urlBrapiProfile = `https://brapi.dev/api/quote/${ticker}?token=${token}&modules=summaryProfile`;
+        // Busca Preço e Nome
+        let urlQuote = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yTicker}`;
+        if (session.crumb) urlQuote += `&crumb=${session.crumb}`;
+        const resQuote = await axios.get(urlQuote, { headers: { 'User-Agent': ua, 'Cookie': session.cookie || '' } });
+        const quoteData = resQuote.data.quoteResponse?.result?.[0];
 
-        const [resFund, resDiv, resProfile] = await Promise.all([
-            fetchWithSession(urlFund).catch(e => null),
-            fetchWithSession(urlDiv).catch(e => null),
-            token ? axios.get(urlBrapiProfile).catch(e => null) : Promise.resolve(null)
-        ]);
+        if (!quoteData) throw new Error("Ativo não encontrado no Yahoo Finance.");
 
-        if (!resFund || !resFund.data?.quoteSummary?.result) {
-            return res.status(404).json({ error: "Ativo não encontrado ou sem fundamentos disponíveis." });
-        }
+        // Busca Balanços e Múltiplos
+        let urlFund = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yTicker}?modules=summaryProfile,financialData,defaultKeyStatistics,summaryDetail`;
+        if (session.crumb) urlFund += `&crumb=${session.crumb}`;
+        const resFund = await axios.get(urlFund, { headers: { 'User-Agent': ua, 'Cookie': session.cookie || '' }, validateStatus: () => true });
+        const fundData = resFund.data.quoteSummary?.result?.[0] || {};
 
-        const yf = resFund.data.quoteSummary.result[0];
-        const brapiData = resProfile?.data?.results?.[0] || {};
-        
-        const cashDividends = [];
-        if (resDiv && resDiv.data?.chart?.result?.[0]?.events?.dividends) {
-            const divs = resDiv.data.chart.result[0].events.dividends;
-            for (const key in divs) {
-                cashDividends.push({ rate: divs[key].amount, paymentDate: new Date(divs[key].date * 1000).toISOString() });
+        // Limpa a formatação de dados brutos do Yahoo ({ raw: 10, fmt: "10" } vira 10)
+        const extractRaw = (obj) => {
+            let cleaned = {};
+            for (let key in obj) {
+                if (obj[key] && typeof obj[key] === 'object' && 'raw' in obj[key]) cleaned[key] = obj[key].raw;
+                else cleaned[key] = obj[key];
             }
-        }
-
-        const roeCalculated = (yf.epsTrailingTwelveMonths && yf.bookValue && yf.bookValue !== 0) ? (yf.epsTrailingTwelveMonths / yf.bookValue) : null;
-
-        const mappedData = {
-            symbol: ticker.replace('.SA', '').toUpperCase(),
-            shortName: yf.price?.shortName || ticker.toUpperCase(),
-            logourl: brapiData.logourl || null,
-            regularMarketPrice: yf.price?.regularMarketPrice?.raw,
-            regularMarketChangePercent: (yf.price?.regularMarketChangePercent?.raw || 0) * 100,
-            summaryProfile: yf.summaryProfile || brapiData.summaryProfile || {},
-            defaultKeyStatistics: {
-                trailingPE: yf.defaultKeyStatistics?.trailingPE?.raw, priceToBook: yf.defaultKeyStatistics?.priceToBook?.raw,
-                bookValue: yf.defaultKeyStatistics?.bookValue?.raw, trailingEps: yf.defaultKeyStatistics?.trailingEps?.raw
-            },
-            financialData: { returnOnEquity: roeCalculated, returnOnAssets: null, profitMargins: null, debtToEquity: null },
-            summaryDetail: { dividendYield: yf.summaryDetail?.dividendYield?.raw },
-            dividendsData: { cashDividends: cashDividends }
+            return cleaned;
         };
 
-        res.json(mappedData);
+        const finalData = {
+            symbol: ticker,
+            shortName: quoteData.shortName || quoteData.longName,
+            regularMarketPrice: quoteData.regularMarketPrice,
+            regularMarketChangePercent: quoteData.regularMarketChangePercent,
+            logourl: `https://s3-symbol-logo.tradingview.com/${ticker.replace('.SA','')}.svg`,
+            summaryProfile: fundData.summaryProfile || {},
+            financialData: extractRaw(fundData.financialData || {}),
+            defaultKeyStatistics: extractRaw(fundData.defaultKeyStatistics || {}),
+            summaryDetail: extractRaw(fundData.summaryDetail || {}),
+            dividendsData: null // O Gráfico de proventos fica vazio graciosamente se usar o Yahoo
+        };
+
+        return res.json(finalData);
+
     } catch (error) {
-        res.status(500).json({ error: "Erro interno do servidor ao processar fundamentos." }); 
+        console.error(`❌ [ERRO FUNDAMENTOS] Falha total para ${ticker}:`, error.message);
+        res.status(500).json({ error: "Erro ao buscar fundamentos nos servidores." });
     }
 });
 
 // ============================================================================
-// 4. GRADE DE OPÇÕES (OPTIONS CHAIN VIA YAHOO FINANCE)
+// ROTA: BATCH QUOTES (DASHBOARD) - BLINDADA E MIGRADA PARA O YAHOO
 // ============================================================================
-router.get('/options-chain/:ticker', async (req, res) => {
+router.get('/batch-quotes', async (req, res) => {
+    if (!req.query.symbols) return res.status(200).json([]);
+    
+    let symbolsArray = req.query.symbols.split(',');
+    
+    let yahooSymbols = symbolsArray.map(sym => {
+        let s = sym.trim().toUpperCase();
+        if (!s.includes('.') && !['^BVSP', '^GSPC', 'BTC-USD', 'BRL=X'].includes(s)) {
+            return s + '.SA';
+        }
+        return s;
+    }).join(',');
+
     try {
-        const { ticker } = req.params;
-        const tickerSA = formatTickerForYahoo(ticker);
-        const url = `https://query1.finance.yahoo.com/v7/finance/options/${tickerSA}`;
-        const response = await fetchWithSession(url);
+        const session = await getYahooSession();
+        let url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbols}`;
+        if (session.crumb) url += `&crumb=${session.crumb}`;
         
-        const result = response.data?.optionChain?.result?.[0];
-        if (!result || !result.options || result.options.length === 0) throw new Error("Nenhuma opção listada para este ativo no momento.");
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Cookie': session.cookie || ''
+            }
+        });
 
-        const spotPrice = result.quote.regularMarketPrice;
-        const optionsData = result.options[0];
-        const expirationDate = optionsData.expirationDate; 
+        if (!response.data || !response.data.quoteResponse || !response.data.quoteResponse.result) {
+            return res.status(200).json([]);
+        }
         
-        const calls = optionsData.calls.map(c => ({ ticker: c.contractSymbol, strike: c.strike, lastPrice: c.lastPrice, type: 'CALL' }));
-        const puts = optionsData.puts.map(p => ({ ticker: p.contractSymbol, strike: p.strike, lastPrice: p.lastPrice, type: 'PUT' }));
-
-        res.json({ underlying: ticker.replace('.SA', ''), spotPrice, expirationDate, calls, puts });
-    } catch (error) {
-        res.status(500).json({ error: "Erro ao buscar a grade de opções." });
+        const data = response.data.quoteResponse.result.map(r => ({
+            symbol: r.symbol.replace('.SA', ''),
+            price: r.regularMarketPrice,
+            changePercent: r.regularMarketChangePercent
+        }));
+        
+        res.status(200).json(data);
+    } catch (error) { 
+        console.error("❌ [ERRO BATCH QUOTES]:", error.message);
+        // Retorna sempre um array explícito com status 200 para não quebrar o .find() no frontend
+        res.status(200).json([]); 
     }
 });
 
 // ============================================================================
-// 5. INTEGRAÇÃO OPÇÕES: BUSCA SPOT E PRÊMIO
-// ============================================================================
-router.get('/quote-option/:optionTicker', async (req, res) => {
-    const token = getBrapiToken();
-    if (!token) return res.status(401).json({ error: "Token não configurado." });
-
-    try {
-        const optionTicker = req.params.optionTicker.toUpperCase();
-        const underlying = optionTicker.substring(0, 5); 
-        const optRes = await axios.get(`https://brapi.dev/api/quote/${optionTicker}?token=${token}`);
-        const spotRes = await axios.get(`https://brapi.dev/api/quote/${underlying}?token=${token}`);
-        res.json({ underlying, optionTicker, spot: spotRes.data.results[0].regularMarketPrice, premio: optRes.data.results[0].regularMarketPrice });
-    } catch (error) { res.status(500).json({ error: "Erro extrair opção." }); }
-});
-
-// ============================================================================
-// 6. HISTÓRICO DE COTAÇÕES
+// ROTA: DADOS HISTÓRICOS PARA GRÁFICOS (YAHOO FINANCE)
 // ============================================================================
 router.get('/history/:ticker', async (req, res) => {
+    let ticker = decodeURIComponent(req.params.ticker).toUpperCase();
+    
+    if (!ticker.includes('.') && !['^BVSP', '^GSPC', 'BTC-USD', 'BRL=X'].includes(ticker)) {
+        ticker += '.SA';
+    }
+
+    const { range = '1mo', interval = '1d' } = req.query;
+
     try {
-        const { ticker } = req.params;
-        const range = req.query.range || '6mo';
-        const interval = req.query.interval || '1d';
-
-        if (ticker.length < 3) return res.status(400).json({ error: "Ticker inválido ou muito curto." });
-
-        const tickerSA = formatTickerForYahoo(ticker);
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${tickerSA}?range=${range}&interval=${interval}`;
-        
-        const response = await fetchWithSession(url);
-        const result = response.data?.chart?.result?.[0];
-        
-        if (!result || !result.timestamp || !result.indicators?.quote?.[0]) throw new Error("Dados históricos não encontrados.");
-
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
+        const response = await axios.get(url);
+        const result = response.data.chart.result[0];
         const timestamps = result.timestamp;
-        const quote = result.indicators.quote[0];
+        const quotes = result.indicators.quote[0];
+        
+        if (!timestamps) return res.json([]);
 
-        const history = timestamps.map((t, index) => ({
-            date: t, close: quote.close[index], open: quote.open[index],
-            high: quote.high[index], low: quote.low[index], volume: quote.volume[index]
-        })).filter(d => d.close !== null && d.close !== undefined);
-
-        if (history.length === 0) throw new Error("Nenhum histórico válido.");
+        const history = timestamps.map((time, index) => ({
+            date: time,
+            open: quotes.open[index],
+            high: quotes.high[index],
+            low: quotes.low[index],
+            close: quotes.close[index],
+            volume: quotes.volume[index]
+        })).filter(d => d.close !== null); 
+        
         res.json(history);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// ============================================================================
+// ROTA: BUSCAR GRADE DE OPÇÕES (YAHOO FINANCE)
+// ============================================================================
+router.get('/options-chain/:ticker', async (req, res) => {
+    let ticker = req.params.ticker.toUpperCase();
+    
+    if (!ticker.includes('.') && !['AAPL', 'SPY', 'TSLA', 'MSFT', 'AMZN'].includes(ticker)) {
+        ticker += '.SA';
+    }
+
+    try {
+        const session = await getYahooSession();
+        
+        let url = `https://query1.finance.yahoo.com/v7/finance/options/${ticker}`;
+        if (session.crumb) url += `?crumb=${session.crumb}`;
+        
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Cookie': session.cookie || ''
+            }
+        });
+
+        const result = response.data.optionChain?.result;
+        if (!result || result.length === 0 || !result[0].options || result[0].options.length === 0) {
+            throw new Error(`O Yahoo Finance retornou vazio. Os dados podem estar indisponíveis no momento.`);
+        }
+
+        const spotPrice = result[0].quote.regularMarketPrice;
+        const options = result[0].options[0];
+        const expirationDate = options.expirationDate;
+
+        let calls = options.calls ? options.calls.map(op => ({
+            ticker: op.contractSymbol,
+            strike: op.strike,
+            lastPrice: op.lastPrice || 0.01,
+            type: 'CALL'
+        })) : [];
+
+        let puts = options.puts ? options.puts.map(op => ({
+            ticker: op.contractSymbol,
+            strike: op.strike,
+            lastPrice: op.lastPrice || 0.01,
+            type: 'PUT'
+        })) : [];
+
+        res.json({ spotPrice, expirationDate, calls, puts });
+        
     } catch (error) {
-        res.status(500).json({ error: "Erro ao buscar histórico." });
+        console.error(`❌ [ERRO OPÇÕES - ${ticker}]:`, error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 
 // ============================================================================
-// 7. BANCO DE DADOS LOCAL (CRUD WATCHLIST E SIMULAÇÕES)
+// ROTAS: WATCHLIST E SIMULAÇÕES SALVAS
 // ============================================================================
 router.get('/watchlist', (req, res) => {
-    try { res.json(db.prepare("SELECT * FROM Watchlist ORDER BY added_at DESC").all()); } catch (err) { res.status(500).json({ error: err.message }); }
+    try { res.json(db.prepare("SELECT * FROM Watchlist ORDER BY added_at DESC").all()); } 
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/watchlist', (req, res) => {
@@ -276,8 +297,10 @@ router.get('/simulations', (req, res) => {
 });
 
 router.post('/simulations', (req, res) => {
-    try { db.prepare("INSERT INTO SavedSimulations (asset, strategy, spot, strike, premium) VALUES (?, ?, ?, ?, ?)").run(req.body.asset, req.body.strategy, req.body.spot, req.body.strike, req.body.premium); res.json({ success: true }); } 
-    catch (err) { res.status(500).json({ error: err.message }); }
+    try { 
+        db.prepare("INSERT INTO SavedSimulations (asset, strategy, spot, strike, premium) VALUES (?, ?, ?, ?, ?)").run(req.body.asset, req.body.strategy, req.body.spot, req.body.strike, req.body.premium); 
+        res.json({ success: true }); 
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/simulations/:id', (req, res) => {
@@ -286,7 +309,7 @@ router.delete('/simulations/:id', (req, res) => {
 });
 
 // ============================================================================
-// 8. SIMULADOR DE OPÇÕES (PAPER TRADING)
+// SIMULADOR DE OPÇÕES (PAPER TRADING)
 // ============================================================================
 router.get('/paper-trading/portfolio', (req, res) => {
     try {
@@ -299,42 +322,35 @@ router.get('/paper-trading/portfolio', (req, res) => {
 router.post('/paper-trading/trade', (req, res) => {
     const { ticker, type, quantity, price } = req.body;
     
-    // quantity positivo = Compra, negativo = Venda
     if (!ticker || !type || quantity === 0 || price <= 0) {
         return res.status(400).json({ error: "Dados da ordem inválidos." });
     }
 
-    const totalCost = quantity * price; // Custos da boleta (se quantity < 0, totalCost é negativo)
+    const totalCost = quantity * price;
 
     try {
         const trade = db.transaction(() => {
             const account = db.prepare("SELECT balance FROM VirtualAccount WHERE id = 1").get();
             
-            // Se for compra (cost > 0) e não tiver saldo, bloqueia.
             if (totalCost > 0 && account.balance < totalCost) {
                 throw new Error("Saldo em Conta Corrente insuficiente para esta operação.");
             }
 
-            // Atualiza o Saldo (Subtrai o custo. Se for venda, subtrair um negativo é somar)
             db.prepare("UPDATE VirtualAccount SET balance = balance - ? WHERE id = 1").run(totalCost);
 
-            // Gerencia a Posição
             const existing = db.prepare("SELECT * FROM VirtualPositions WHERE ticker = ?").get(ticker);
 
             if (existing) {
                 const newQty = existing.quantity + quantity;
                 
                 if (newQty === 0) {
-                    // Zerou a posição
                     db.prepare("DELETE FROM VirtualPositions WHERE ticker = ?").run(ticker);
                 } else {
                     let newAvgPrice = existing.average_price;
                     
-                    // Recalcula o Preço Médio apenas se estiver aumentando a posição (fazendo médio)
                     if (Math.sign(existing.quantity) === Math.sign(quantity)) {
                         newAvgPrice = ((Math.abs(existing.quantity) * existing.average_price) + (Math.abs(quantity) * price)) / Math.abs(newQty);
                     } 
-                    // Se a operação "virou a mão" (ex: tinha 100, vendeu 200, ficou com -100)
                     else if (Math.sign(existing.quantity) !== Math.sign(newQty)) {
                         newAvgPrice = price;
                     }
@@ -342,12 +358,11 @@ router.post('/paper-trading/trade', (req, res) => {
                     db.prepare("UPDATE VirtualPositions SET quantity = ?, average_price = ?, updated_at = CURRENT_TIMESTAMP WHERE ticker = ?").run(newQty, newAvgPrice, ticker);
                 }
             } else {
-                // Nova posição
                 db.prepare("INSERT INTO VirtualPositions (ticker, type, quantity, average_price) VALUES (?, ?, ?, ?)").run(ticker, type, quantity, price);
             }
         });
 
-        trade(); // Executa a transação
+        trade();
         res.json({ success: true, message: "Ordem executada com sucesso!" });
         
     } catch (err) {
@@ -355,7 +370,6 @@ router.post('/paper-trading/trade', (req, res) => {
     }
 });
 
-// Rota de emergência para resetar o jogo caso a conta "quebre"
 router.post('/paper-trading/reset', (req, res) => {
     try {
         db.transaction(() => {
