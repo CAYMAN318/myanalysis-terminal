@@ -291,20 +291,21 @@ router.delete('/watchlist/:id', (req, res) => {
 
 router.get('/simulations', (req, res) => {
     try { 
-        db.exec(`CREATE TABLE IF NOT EXISTS SavedSimulations (id INTEGER PRIMARY KEY AUTOINCREMENT, asset TEXT, strategy TEXT, spot REAL, strike REAL, premium REAL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-        res.json(db.prepare("SELECT * FROM SavedSimulations ORDER BY created_at DESC").all()); 
+        db.exec(`CREATE TABLE IF NOT EXISTS OptionsSimulations (id INTEGER PRIMARY KEY AUTOINCREMENT, asset TEXT, strategy TEXT, spot REAL, strike REAL, premium REAL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+        res.json(db.prepare("SELECT * FROM OptionsSimulations ORDER BY created_at DESC").all()); 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/simulations', (req, res) => {
     try { 
-        db.prepare("INSERT INTO SavedSimulations (asset, strategy, spot, strike, premium) VALUES (?, ?, ?, ?, ?)").run(req.body.asset, req.body.strategy, req.body.spot, req.body.strike, req.body.premium); 
+        db.exec(`CREATE TABLE IF NOT EXISTS OptionsSimulations (id INTEGER PRIMARY KEY AUTOINCREMENT, asset TEXT, strategy TEXT, spot REAL, strike REAL, premium REAL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+        db.prepare("INSERT INTO OptionsSimulations (asset, strategy, spot, strike, premium) VALUES (?, ?, ?, ?, ?)").run(req.body.asset, req.body.strategy, req.body.spot, req.body.strike, req.body.premium); 
         res.json({ success: true }); 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/simulations/:id', (req, res) => {
-    try { db.prepare("DELETE FROM SavedSimulations WHERE id = ?").run(req.params.id); res.json({ success: true }); } 
+    try { db.prepare("DELETE FROM OptionsSimulations WHERE id = ?").run(req.params.id); res.json({ success: true }); } 
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
