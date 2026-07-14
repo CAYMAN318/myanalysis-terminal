@@ -11,22 +11,15 @@ app.use(bodyParser.json());
 
 // Serve os arquivos do frontend
 const staticPath = path.join(__dirname, '../src');
-app.use(express.static(staticPath));
-
 const configuracoesRoutes = require('./routes/configuracoes');
-
 app.use('/api/configuracoes', configuracoesRoutes);
+
 const brapiRoutes = require('./routes/brapi');
-app.use('/api/brapi', brapiRoutes)
+app.use('/api/brapi', brapiRoutes);
 
-
-// --- Registro das Rotas MyAnalysis (A serem criadas no futuro) ---
-// const brapiRoutes = require('./routes/brapi');
-// const watchListRoutes = require('./routes/watchlist');
-// const optionsRoutes = require('./routes/options');
-
-// app.use('/api/brapi', brapiRoutes);
-// app.use('/api/watchlist', watchListRoutes);
+// NOVO: ROTA DO RADAR
+const radarRoutes = require('./routes/radar');
+app.use('/api/radar', radarRoutes);
 
 // Fallback para abrir a index.html (SPA Pattern com iframes)
 app.get('/', (req, res) => {
@@ -55,6 +48,5 @@ const stopServer = () => {
         serverInstance = null;
     }
 };
-
 
 module.exports = { startServer, stopServer };

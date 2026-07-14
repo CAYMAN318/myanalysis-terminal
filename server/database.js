@@ -44,6 +44,13 @@ db.exec(`
         value TEXT
     );
 
+    -- Tabela para salvar os alvos do Radar de Renda
+    CREATE TABLE IF NOT EXISTS RadarTargets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL UNIQUE,
+        added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- ============================================================================
     -- MÓDULO DE TREINAMENTO (PAPER TRADING / SIMULADOR)
     -- ============================================================================
